@@ -13,6 +13,9 @@ const PUNCH_UP = 0.70;
 const MELEE_COOLDOWN = 0.5;
 const MELEE_RANGE = 120;
 const MELEE_DMG = 40;
+const MELEE_COMBO_MAX = 5;
+const MELEE_COMBO_BONUS = 1.2;
+const MELEE_COMBO_TIMEOUT = 1.5;
 const AIM_LOCK_BACK = 0.07;
 const DWELL_TIME = 0.9;
 const PALM_RELOAD = 0.35;
@@ -288,6 +291,7 @@ class Sfx{
       "empty": tone(1500,0.05,100).map(v=>v*0.4),
       "reload": tone(400,0.06,100).concat(silence(0.12), tone(650,0.07,100)),
       "hit": tone(800,0.06,80).map((v,i)=>v*0.7 + noise(0.04,100)[i]*0.4),
+      "melee": noise(0.12,60,5).map((v,i)=>v*0.8).concat(tone(120,0.12,40).map((v,i)=>v*0.5)),
       "kill": tt.map(x=>Math.sin(2*Math.PI*(500*x-1200*x*x))*Math.exp(-x*10)*0.8),
       "hurt": tone(100,0.25,25).concat(noise(0.25,30,10).map(v=>v*0.7)).flat(),
       "boom": noise(0.8,5,20).map((v,i)=>v*1.1).concat(tone(40,0.8,8).map(v=>v*0.9)),
@@ -368,7 +372,7 @@ class Ctl{
   shot_pos(){ return this.fire_edge ? this.lock : this.pos; }
 }
 class HandCtl extends Ctl{
-  constructor(){ super(); this.raw="NONE"; this.raw_n=0; this.trig=false; this.armed=false; this.hist=[]; this.filt=null; this.smooth=null; this.palm_t=null; this.palm_used=false; this.peace_prev=false; this.switch_cd=0; this.fext=[false,false,false,false]; this.lost_t=0; this.punch_z=null; this.punch_fired=false; this.melee_z=null; this.melee_fired=false; this.melee_ready=true; this.melee_cool=0; }
+  constructor(){ super(); this.raw="NONE"; this.raw_n=0; this.trig=false; this.armed=false; this.hist=[]; this.filt=null; this.smooth=null; this.palm_t=null; this.palm_used=false; this.peace_prev=false; this.switch_cd=0; this.fext=[false,false,false,false]; this.lost_t=0; this.punch_z=null; this.punch_fired=false; this.melee_z=null; this.melee_fired=false; this.melee_ready=true; this.melee_cool=0; this.melee_combo=0; this.melee_combo_t=0; }
   _lost(){
     this.present=false; this.pose=this.raw="NONE"; this.raw_n=0;
     this.trigger=this.trig=this.armed=this.guard=false;
@@ -377,7 +381,7 @@ class HandCtl extends Ctl{
     this.peace_prev=false; this.fext=[false,false,false,false]; this.ext=[false,false,false,false];
     this.tr=0; this.lost_t=0;
     this.punch_z=null; this.punch_fired=false;
-    this.melee_z=null; this.melee_fired=false; this.melee_ready=true; this.melee_cool=0;
+    this.melee_z=null; this.melee_fired=false; this.melee_ready=true; this.melee_cool=0; this.melee_combo=0; this.melee_combo_t=0;
   }
   update(lm,now,dt){
     this.fire_edge=this.reload_edge=this.switch_edge=false;
@@ -463,6 +467,12 @@ class HandCtl extends Ctl{
           melee_fired=true;
           this.melee_ready=false;
           this.melee_cool=MELEE_COOLDOWN;
+          if(now-this.melee_combo_t<=MELEE_COMBO_TIMEOUT){
+            this.melee_combo=Math.min(MELEE_COMBO_MAX, this.melee_combo+1);
+          } else {
+            this.melee_combo=1;
+          }
+          this.melee_combo_t=now;
         }
       }
       this.melee_z=cz;
@@ -470,6 +480,7 @@ class HandCtl extends Ctl{
       this.melee_cool-=dt;
       if(this.melee_cool<=0){ this.melee_ready=true; this.melee_z=cz; }
     }
+    if(this.melee_combo>0 && now-this.melee_combo_t>MELEE_COMBO_TIMEOUT){ this.melee_combo=0; }
     this.trigger=this.trig||fired||punch_fired;
     this.fire_edge=fired||punch_fired;
     this.melee_edge=melee_fired;
@@ -1019,20 +1030,23 @@ class PvE extends PlayMode{
   }
   melee_attack(ctl,now){
     const g=this.g;
-    g.sfx.play("hit");
+    g.sfx.play("melee");
     g.fx.shake=Math.max(g.fx.shake,6);
     g.fx.burst(ctl.pos[0],ctl.pos[1],[255,100,100],12,200,0.4,3,0);
+    const combo=ctl.melee_combo;
+    const bonusMult = combo>1 ? 1+(combo-1)*(MELEE_COMBO_BONUS-1)/(MELEE_COMBO_MAX-1) : 1;
+    const dmg=Math.floor(MELEE_DMG*bonusMult);
     let hitAny=false;
     for(const zb of this.zs){
       const [zx,yf,h]=zgeom(zb);
       const dist=hypot(ctl.pos[0]-zx,ctl.pos[1]-(yf-h*0.5));
       if(dist<MELEE_RANGE){
-        this.damage_zombie(zb,MELEE_DMG,false);
+        this.damage_zombie(zb,dmg,false);
         hitAny=true;
       }
     }
     if(hitAny){
-      g.sfx.play("boom");
+      g.fx.text(ctl.pos[0],ctl.pos[1]-S(40), combo>1?"x"+combo+" COMBO":"MELEE", [255,100,100], 0.8);
       g.fx.ring(ctl.pos[0],ctl.pos[1],MELEE_RANGE,[255,80,80],0.4);
     }
   }
@@ -1146,6 +1160,17 @@ class PvE extends PlayMode{
     this.draw_menu_btn(c,ctl);
     text(c,"HP "+Math.floor(this.hp)+"  ARMOR "+Math.floor(this.armor),S(14),S(34),0.7,[255,255,255],2);
     text(c,"WAVE "+this.wave+"  SCORE "+this.score+"  $ "+this.earned,V.W/2,S(34),0.7,[255,255,255],2,"c");
+    // 근접 공격 쿨다운 / 콤보 HUD
+    if(ctl&&ctl.present){
+      if(ctl.melee_combo>0){
+        text(c,"MELEE x"+ctl.melee_combo+" COMBO",V.W/2,S(100),0.8,[255,100,100],2,"c");
+      } else if(!ctl.melee_ready){
+        const coolLeft=Math.max(0,Math.ceil(ctl.melee_cool));
+        text(c,"MELEE "+coolLeft+"s",V.W/2,S(100),0.8,[255,200,100],2,"c");
+      } else {
+        text(c,"MELEE READY",V.W/2,S(100),0.8,[100,255,100],2,"c");
+      }
+    }
     if(this.state==="READY") text(c,"STARTING... "+Math.ceil(this.t_state-now),V.W/2,V.H/2,1.5,[0,255,255],3,"c");
     if(this.state==="OVER") text(c,"GAME OVER",V.W/2,V.H/2,1.5,[255,60,60],3,"c");
     this.g.fx.draw(c);

@@ -59,7 +59,10 @@ PUNCH_DOWN = 0.45         # 손이 카메라 쪽으로 급격히 가까워지면
 PUNCH_UP = 0.70           # 이 이상이면 펀치 종료(재발사 준비)
 MELEE_COOLDOWN = 0.5      # 근접 공격 쿨다운(초)
 MELEE_RANGE = S(120)      # 근접 공격 판정 거리
-MELEE_DMG = 40            # 근접 공격 데미지
+MELEE_DMG = 40            # 근접 공격 기본 데미지
+MELEE_COMBO_MAX = 5       # 최대 콤보 수
+MELEE_COMBO_BONUS = 1.2   # 콤보 데미지 배수
+MELEE_COMBO_TIMEOUT = 1.5 # 콤보 유지 시간(초)
 AIM_LOCK_BACK = 0.07      # 발사 순간 조준점을 이 시간(초) 전 위치로 고정
 DWELL_TIME = 0.9          # HUD 버튼 가리키기 시간
 PALM_RELOAD = 0.35        # 손바닥 장전 유지 시간
@@ -271,6 +274,7 @@ class Sfx:
                 "empty": _wav(_tone(1500, 0.05, 100) * 0.4),
                 "reload": _wav(_cat(_tone(400, 0.06, 100), _silence(0.12), _tone(650, 0.07, 100))),
                 "hit": _wav(_tone(800, 0.06, 80) * 0.7 + _noise(0.04, 100) * 0.4),
+                "melee": _wav(_noise(0.12, 60, 5) * 0.8 + _tone(120, 0.12, 40) * 0.5),
                 "kill": _wav(np.sin(2 * np.pi * (500 * t - 1200 * t ** 2)) * np.exp(-t * 10) * 0.8),
                 "hurt": _wav(_tone(100, 0.25, 25) + _noise(0.25, 30, 10) * 0.7),
                 "boom": _wav(_cat(_noise(0.8, 5, 20) * 1.1, _tone(40, 0.8, 8) * 0.9)),
@@ -499,6 +503,8 @@ class HandCtl(Ctl):
         self.melee_fired = False
         self.melee_ready = True
         self.melee_cool = 0.0
+        self.melee_combo = 0
+        self.melee_combo_t = 0.0
         # 반동 초기화
         self.recoil = 0.0
         self.recoil_dir = (0.0, -1.0)
@@ -626,12 +632,21 @@ class HandCtl(Ctl):
                         melee_fired = True
                         self.melee_ready = False
                         self.melee_cool = MELEE_COOLDOWN
+                        # 콤보 증가
+                        if now - self.melee_combo_t <= MELEE_COMBO_TIMEOUT:
+                            self.melee_combo = min(MELEE_COMBO_MAX, self.melee_combo + 1)
+                        else:
+                            self.melee_combo = 1
+                        self.melee_combo_t = now
             self.melee_z = cz
         else:
             self.melee_cool -= dt
             if self.melee_cool <= 0:
                 self.melee_ready = True
                 self.melee_z = cz
+        # 콤보 타임아웃 체크
+        if self.melee_combo > 0 and now - self.melee_combo_t > MELEE_COMBO_TIMEOUT:
+            self.melee_combo = 0
 
         # 세 가지 발사 방식 중 하나라도 감지되면 발사
         self.trigger = self.trig or fired or punch_fired
@@ -1444,21 +1459,26 @@ class PvE(PlayMode):
             self.hit_point(pos[0] + math.cos(a) * rr, pos[1] + math.sin(a) * rr, w["dmg"], w["pierce"])
 
     def melee_attack(self, ctl, now):
-        """근접 공격: 손 앞 방향의 좀비를 때림"""
+        """근접 공격: 손 앞 방향의 좀비를 때림 (콤보 보너스 적용)"""
         g = self.g
-        g.sfx.play("hit")
+        g.sfx.play("melee")
         g.fx.shake = max(g.fx.shake, 6)
         g.fx.burst(ctl.pos[0], ctl.pos[1], (255, 100, 100), 12, 200, 0.4, 3, 0)
+        # 콤보 보너스 데미지 계산
+        combo = ctl.melee_combo
+        bonus_mult = 1.0 + (combo - 1) * (MELEE_COMBO_BONUS - 1) / (MELEE_COMBO_MAX - 1) if combo > 1 else 1.0
+        dmg = int(MELEE_DMG * bonus_mult)
         # 손 앞 방향에 있는 좀비 판정
         hit_any = False
         for zb in list(self.zs):
             zx, yf, h = zgeom(zb)
             dist = math.hypot(ctl.pos[0] - zx, ctl.pos[1] - (yf - h * 0.5))
             if dist < MELEE_RANGE:
-                self.damage_zombie(zb, MELEE_DMG, head=False)
+                self.damage_zombie(zb, dmg, head=False)
                 hit_any = True
         if hit_any:
-            g.sfx.play("boom")
+            g.fx.text(ctl.pos[0], ctl.pos[1] - S(40), f"x{combo} COMBO" if combo > 1 else "MELEE",
+                      (255, 100, 100), 0.8)
             g.fx.ring(ctl.pos[0], ctl.pos[1], MELEE_RANGE, (255, 80, 80), 0.4)
 
     def use_item(self, key, ctl):
@@ -1627,6 +1647,16 @@ class PvE(PlayMode):
         text(img, "SCORE %d   KILLS %d   [%s]" % (self.score, self.kills, self.diff["name"]), W // 2, S(62), 0.55,
              (230, 230, 230), 1, "c")
         text(img, "$ %d" % (self.g.save.d["coins"] + self.earned), W - S(20), S(82), 0.8, (0, 215, 255), 2, "r")
+        # 근접 공격 쿨다운 / 콤보 HUD
+        ctl = g.ptr()
+        if ctl and ctl.present:
+            if ctl.melee_combo > 0:
+                text(img, "MELEE x%d COMBO" % ctl.melee_combo, W // 2, S(100), 0.8, (255, 100, 100), 2, "c")
+            elif not ctl.melee_ready:
+                cool_left = max(0, int(math.ceil(ctl.melee_cool)))
+                text(img, "MELEE %ds" % cool_left, W // 2, S(100), 0.8, (255, 200, 100), 2, "c")
+            else:
+                text(img, "MELEE READY", W // 2, S(100), 0.8, (100, 255, 100), 2, "c")
         self.draw_menu_btn(img, ctl)
         for k, (r, label, sub) in self.btns.items():
             if k == "menu":
