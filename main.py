@@ -58,7 +58,7 @@ EXT_RATIO_PINKY = 1.30    # 새끼손가락은 짧아서 조금 낮게
 PUNCH_DOWN = 0.45         # 손이 카메라 쪽으로 급격히 가까워지면 '펀치 포워드(발사)'
 PUNCH_UP = 0.70           # 이 이상이면 펀치 종료(재발사 준비)
 MELEE_COOLDOWN = 0.5      # 근접 공격 쿨다운(초)
-MELEE_RANGE = S(120)      # 근접 공격 판정 거리
+MELEE_RANGE = 120         # 근접 공격 판정 거리 (피셀, draw에서 S() 적용)
 MELEE_DMG = 40            # 근접 공격 기본 데미지
 MELEE_COMBO_MAX = 5       # 최대 콤보 수
 MELEE_COMBO_BONUS = 1.2   # 콤보 데미지 배수
@@ -1473,13 +1473,13 @@ class PvE(PlayMode):
         for zb in list(self.zs):
             zx, yf, h = zgeom(zb)
             dist = math.hypot(ctl.pos[0] - zx, ctl.pos[1] - (yf - h * 0.5))
-            if dist < MELEE_RANGE:
+            if dist < S(MELEE_RANGE):
                 self.damage_zombie(zb, dmg, head=False)
                 hit_any = True
         if hit_any:
             g.fx.text(ctl.pos[0], ctl.pos[1] - S(40), f"x{combo} COMBO" if combo > 1 else "MELEE",
                       (255, 100, 100), 0.8)
-            g.fx.ring(ctl.pos[0], ctl.pos[1], MELEE_RANGE, (255, 80, 80), 0.4)
+            g.fx.ring(ctl.pos[0], ctl.pos[1], S(MELEE_RANGE), (255, 80, 80), 0.4)
 
     def use_item(self, key, ctl):
         fx = self.g.fx

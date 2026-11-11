@@ -1040,14 +1040,14 @@ class PvE extends PlayMode{
     for(const zb of this.zs){
       const [zx,yf,h]=zgeom(zb);
       const dist=hypot(ctl.pos[0]-zx,ctl.pos[1]-(yf-h*0.5));
-      if(dist<MELEE_RANGE){
+      if(dist<S(MELEE_RANGE)){
         this.damage_zombie(zb,dmg,false);
         hitAny=true;
       }
     }
     if(hitAny){
       g.fx.text(ctl.pos[0],ctl.pos[1]-S(40), combo>1?"x"+combo+" COMBO":"MELEE", [255,100,100], 0.8);
-      g.fx.ring(ctl.pos[0],ctl.pos[1],MELEE_RANGE,[255,80,80],0.4);
+      g.fx.ring(ctl.pos[0],ctl.pos[1],S(MELEE_RANGE),[255,80,80],0.4);
     }
   }
   use_item(key,ctl){
