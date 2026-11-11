@@ -1650,7 +1650,7 @@ class PvE(PlayMode):
              (230, 230, 230), 1, "c")
         text(img, "$ %d" % (self.g.save.d["coins"] + self.earned), W - S(20), S(82), 0.8, (0, 215, 255), 2, "r")
         # 근접 공격 쿨다운 / 콤보 HUD
-        ctl = g.ptr()
+        ctl = self.g.ptr()
         if ctl and ctl.present:
             if ctl.melee_combo > 0:
                 text(img, "MELEE x%d COMBO" % ctl.melee_combo, W // 2, S(100), 0.8, (255, 100, 100), 2, "c")
