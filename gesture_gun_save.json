@@ -1,0 +1,29 @@
+{
+ "coins": 240,
+ "owned": [
+  "pistol"
+ ],
+ "equipped": "pistol",
+ "ammo": {
+  "smg": 0,
+  "rifle": 0,
+  "shotgun": 0,
+  "sniper": 0
+ },
+ "items": {
+  "medkit": 1,
+  "armor": 0,
+  "grenade": 0
+ },
+ "best": {
+  "pve_wave": 1,
+  "pve_score": 80,
+  "range": 0,
+  "pvp_matches": 0
+ },
+ "settings": {
+  "difficulty": 1,
+  "sound": true
+ },
+ "kills": 12
+}

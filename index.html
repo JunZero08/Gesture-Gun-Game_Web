@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gesture Gun — 웹 버전 (손가락 권총 게임)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="loading">MediaPipe 모델 로딩 중&hellip; 카메라 권한을 허용해 주세요.</div>
+  <div class="game-container">
+    <video id="input_video" playsinline></video>
+    <canvas id="output_canvas"></canvas>
+    <div id="hint">검지만 펴고 조준 &bull; 엄지 접어 발사 &bull; 손바닥 펴서 장전 &bull; 브이 무장교체 &bull; 주먹 방어</div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
