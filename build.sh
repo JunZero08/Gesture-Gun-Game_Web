@@ -1,21 +1,59 @@
 #!/usr/bin/env bash
 # ============================================================
-# Gesture-Gun macOS / Linux 실행 파일 빌드 스크립트
+# Gesture-Gun Build Script for macOS / Linux
 # ============================================================
 set -e
 
-echo "[1/4] Python 가상환경 생성 중..."
+echo "============================================"
+echo "Gesture-Gun Build Script (macOS / Linux)"
+echo "============================================"
+echo
+
+# Detect OS
+OS="$(uname -s)"
+echo "Detected OS: $OS"
+
+# Remove existing venv and dist to avoid corrupted environment
+if [ -d ".venv" ]; then
+    echo "[1/5] Removing existing .venv..."
+    rm -rf .venv
+fi
+
+if [ -d "dist" ]; then
+    echo "Removing existing dist..."
+    rm -rf dist
+fi
+
+if [ -d "build" ]; then
+    echo "Removing existing build..."
+    rm -rf build
+fi
+
+# Create Python virtual environment
+echo "[2/5] Creating Python virtual environment..."
 python3 -m venv .venv
 source .venv/bin/activate
 
-echo "[2/4] 필수 패키지 설치 중..."
+# Install packages
+echo "[3/5] Installing packages..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
-echo "[3/4] PyInstaller 빌드 실행 중..."
+# Run PyInstaller
+echo "[4/5] Running PyInstaller build..."
 pyinstaller Gesture-Gun.spec --clean --noconfirm
 
-echo "[4/4] 빌드 완료!"
 echo
-echo "실행 파일 위치: dist/Gesture-Gun"
+echo "============================================"
+echo "[5/5] Build complete!"
+echo "============================================"
+
+if [[ "$OS" == "Darwin" ]]; then
+    echo "macOS app: dist/Gesture-Gun.app"
+    echo "To run:    open dist/Gesture-Gun.app"
+elif [[ "$OS" == "Linux" ]]; then
+    echo "Linux executable: dist/Gesture-Gun"
+    echo "To run:           ./dist/Gesture-Gun"
+fi
+
 echo
