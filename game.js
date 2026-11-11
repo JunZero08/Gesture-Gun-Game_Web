@@ -6,8 +6,13 @@
 /* ---------- 상수 ---------- */
 const EXT_RATIO = 1.40;
 const EXT_RATIO_PINKY = 1.30;
-const TRIG_DOWN = 0.42;
+const TRIG_DOWN = 0.40;
 const TRIG_UP = 0.55;
+const PUNCH_DOWN = 0.45;
+const PUNCH_UP = 0.70;
+const MELEE_COOLDOWN = 0.5;
+const MELEE_RANGE = 120;
+const MELEE_DMG = 40;
 const AIM_LOCK_BACK = 0.07;
 const DWELL_TIME = 0.9;
 const PALM_RELOAD = 0.35;
@@ -30,14 +35,43 @@ const DIFFS = [
 ];
 
 const WEAPONS = {
-  pistol:  {name:"PISTOL", dmg:34, rate:0.30, mag:12, reload:1.0, pellets:1, spread:0, auto:false, pierce:false, price:0, pack:0, packcost:0, pvp:11, pvp_spread:0.015, col:[220,220,220], snd:"shot"},
-  smg:     {name:"SMG", dmg:15, rate:0.085, mag:30, reload:1.5, pellets:1, spread:18, auto:true, pierce:false, price:300, pack:60, packcost:60, pvp:4.5, pvp_spread:0.05, col:[80,220,255], snd:"smg"},
-  rifle:   {name:"RIFLE", dmg:26, rate:0.13, mag:30, reload:1.8, pellets:1, spread:7, auto:true, pierce:false, price:550, pack:60, packcost:75, pvp:6.5, pvp_spread:0.025, col:[255,180,80], snd:"smg"},
+  // 권총류
+  pistol:  {name:"PISTOL",   dmg:34,  rate:0.30, mag:12, reload:1.0, pellets:1, spread:0,  auto:false, pierce:false, price:0,   pack:0,  packcost:0,   pvp:11,  pvp_spread:0.015, col:[220,220,220],  snd:"shot"},
+  glock17: {name:"GLOCK 17", dmg:28,  rate:0.22, mag:17, reload:1.2, pellets:1, spread:0,  auto:false, pierce:false, price:450, pack:34, packcost:55,  pvp:9,   pvp_spread:0.012, col:[200,200,200], snd:"shot"},
+  m1911:   {name:"M1911", dmg:42,  rate:0.35, mag:7, reload:1.5, pellets:1, spread:0,  auto:false, pierce:false, price:500, pack:14, packcost:65, pvp:13,  pvp_spread:0.008, col:[180,160,120], snd:"shot"},
+  deagle:  {name:"DESERT EAGLE", dmg:85, rate:0.55, mag:7, reload:2.0, pellets:1, spread:5, auto:false, pierce:true, price:1200, pack:14, packcost:120, pvp:25, pvp_spread:0.02, col:[220,180,60], snd:"shot"},
+  // 기관단총 / PDW
+  smg:     {name:"SMG",     dmg:15, rate:0.085, mag:30, reload:1.5, pellets:1, spread:18, auto:true, pierce:false, price:300, pack:60, packcost:60, pvp:4.5, pvp_spread:0.05, col:[80,220,255], snd:"smg"},
+  mp5:     {name:"MP5", dmg:22, rate:0.07, mag:30, reload:1.6, pellets:1, spread:14, auto:true, pierce:false, price:650, pack:60, packcost:70, pvp:5, pvp_spread:0.04, col:[100,180,255], snd:"smg"},
+  ump45:   {name:"UMP45", dmg:30, rate:0.10, mag:25, reload:1.8, pellets:1, spread:10, auto:true, pierce:false, price:700, pack:50, packcost:75, pvp:6, pvp_spread:0.025, col:[140,120,200], snd:"smg"},
+  mac10:   {name:"MAC-10", dmg:18, rate:0.05, mag:30, reload:1.4, pellets:1, spread:22, auto:true, pierce:false, price:550, pack:60, packcost:60, pvp:4, pvp_spread:0.07, col:[150,150,150], snd:"smg"},
+  vector:  {name:"VECTOR", dmg:24, rate:0.055, mag:25, reload:1.5, pellets:1, spread:10, auto:true, pierce:false, price:800, pack:50, packcost:70, pvp:5.5, pvp_spread:0.03, col:[255,100,200], snd:"smg"},
+  p90:     {name:"P90", dmg:20, rate:0.065, mag:50, reload:2.2, pellets:1, spread:16, auto:true, pierce:false, price:850, pack:100, packcost:80, pvp:4.5, pvp_spread:0.05, col:[255,200,100], snd:"smg"},
+  mp7:     {name:"MP7", dmg:18, rate:0.06, mag:40, reload:1.8, pellets:1, spread:12, auto:true, pierce:true, price:950, pack:80, packcost:90, pvp:5, pvp_spread:0.03, col:[200,150,255], snd:"smg"},
+  // 돌격소총
+  rifle:   {name:"RIFLE",   dmg:26, rate:0.13, mag:30, reload:1.8, pellets:1, spread:7,  auto:true, pierce:false, price:550, pack:60, packcost:75, pvp:6.5, pvp_spread:0.025, col:[255,180,80], snd:"smg"},
+  ak47:    {name:"AK-47", dmg:38, rate:0.09, mag:30, reload:2.0, pellets:1, spread:12, auto:true, pierce:false, price:900, pack:60, packcost:90, pvp:7, pvp_spread:0.03, col:[120,100,60], snd:"smg"},
+  m4a1:    {name:"M4A1", dmg:32, rate:0.085, mag:30, reload:1.8, pellets:1, spread:8, auto:true, pierce:false, price:1100, pack:60, packcost:85, pvp:6, pvp_spread:0.02, col:[100,140,100], snd:"smg"},
+  scar:    {name:"SCAR-L", dmg:35, rate:0.095, mag:30, reload:2.0, pellets:1, spread:10, auto:true, pierce:false, price:1200, pack:60, packcost:95, pvp:6.5, pvp_spread:0.025, col:[80,160,100], snd:"smg"},
+  g36:     {name:"G36C", dmg:30, rate:0.10, mag:30, reload:1.9, pellets:1, spread:11, auto:true, pierce:false, price:1000, pack:60, packcost:85, pvp:6, pvp_spread:0.028, col:[120,160,90], snd:"smg"},
+  aug:     {name:"AUG", dmg:34, rate:0.09, mag:30, reload:2.0, pellets:1, spread:9, auto:true, pierce:false, price:1100, pack:60, packcost:90, pvp:6.2, pvp_spread:0.022, col:[90,150,110], snd:"smg"},
+  m249:    {name:"M249", dmg:28, rate:0.075, mag:100, reload:3.5, pellets:1, spread:20, auto:true, pierce:false, price:1600, pack:200, packcost:150, pvp:5, pvp_spread:0.06, col:[100,100,80], snd:"smg"},
+  // 샷건
   shotgun: {name:"SHOTGUN", dmg:14, rate:0.80, mag:6, reload:2.0, pellets:8, spread:100, auto:false, pierce:false, price:500, pack:12, packcost:80, pvp:4, pvp_spread:0.20, col:[80,150,255], snd:"shotgun"},
-  sniper:  {name:"SNIPER", dmg:140, rate:1.10, mag:5, reload:2.2, pellets:1, spread:0, auto:false, pierce:true, price:800, pack:10, packcost:100, pvp:42, pvp_spread:0.0, col:[120,255,120], snd:"sniper"},
+  rem870:  {name:"REM 870", dmg:16, rate:0.75, mag:6, reload:2.2, pellets:10, spread:110, auto:false, pierce:false, price:750, pack:12, packcost:90, pvp:5, pvp_spread:0.22, col:[80,100,220], snd:"shotgun"},
+  m1014:   {name:"M1014", dmg:18, rate:0.45, mag:7, reload:2.5, pellets:9, spread:95, auto:false, pierce:false, price:900, pack:14, packcost:100, pvp:6, pvp_spread:0.18, col:[60,120,255], snd:"shotgun"},
+  // 저격소총
+  sniper:  {name:"SNIPER",  dmg:140, rate:1.10, mag:5, reload:2.2, pellets:1, spread:0, auto:false, pierce:true, price:800, pack:10, packcost:100, pvp:42, pvp_spread:0.0, col:[120,255,120], snd:"sniper"},
+  m24:     {name:"M24", dmg:160, rate:1.2, mag:5, reload:2.5, pellets:1, spread:0, auto:false, pierce:true, price:1400, pack:10, packcost:130, pvp:40, pvp_spread:0.0, col:[100,200,100], snd:"sniper"},
+  awp:     {name:"AWP", dmg:200, rate:1.5, mag:5, reload:2.8, pellets:1, spread:0, auto:false, pierce:true, price:1800, pack:10, packcost:150, pvp:50, pvp_spread:0.0, col:[0,255,180], snd:"sniper"},
+  // 로켓 / 폭발물
+  rpg7:    {name:"RPG-7", dmg:500, rate:1.5, mag:1, reload:3.0, pellets:1, spread:0, auto:false, pierce:true, price:2500, pack:2, packcost:300, pvp:0, pvp_spread:0.15, col:[255,80,60], snd:"boom"},
   grenade: {name:"GRENADE", dmg:170, rate:0.9, mag:1, reload:0, pellets:1, spread:0, auto:false, pierce:false, price:60, pack:1, packcost:60, pvp:0, pvp_spread:0, col:[60,160,255], snd:"shot"},
 };
-const GUNS = ["pistol","smg","rifle","shotgun","sniper"];
+const GUNS = ["pistol","glock17","m1911","deagle","smg","mp5","ump45","mac10","vector","p90","mp7",
+        "rifle","ak47","m4a1","scar","g36","aug","m249",
+        "shotgun","rem870","m1014",
+        "sniper","m24","awp"];
 const ORDER = GUNS.concat(["grenade"]);
 
 const ZT = {
@@ -223,6 +257,22 @@ function tone(f,d,decay){
 }
 function silence(d){ return new Array(Math.floor(SR*d)).fill(0); }
 function cat(...a){ return a.flat(); }
+function env(d, attack=0.005, decay=0.15){
+  const n=Math.floor(SR*d); const out=[]; const a=Math.max(1,Math.floor(SR*attack));
+  for(let i=0;i<n;i++) out.push(i<a? i/a : Math.exp(-(i-a)/(SR*decay)));
+  return out;
+}
+function gunshot(dur, noiseDecay, lowFreq, highFreq, noiseAmp=0.9, lowAmp=0.5, highAmp=0.35){
+  const n=Math.floor(SR*dur); const e=env(dur); const out=[];
+  for(let i=0;i<n;i++){
+    const tt=i/SR;
+    const nz=(Math.random()*2-1)*Math.exp(-tt*noiseDecay);
+    const low=Math.sin(2*Math.PI*lowFreq*tt)*Math.exp(-tt*40);
+    const high=Math.sin(2*Math.PI*highFreq*tt)*Math.exp(-tt*80);
+    out.push((nz*noiseAmp + low*lowAmp + high*highAmp)*e[i]);
+  }
+  return out;
+}
 
 class Sfx{
   constructor(on=true){ this.on=on; this.bufs={}; this.ac=null; this.inited=false; }
@@ -231,21 +281,21 @@ class Sfx{
     ensureAudio();
     const tt=t(0.2);
     this.bufs = {
-      "shot": noise(0.14,38).map((v,i)=>v*0.9 + tone(160,0.14,30)[i]*0.6),
-      "smg": noise(0.07,70).map((v,i)=>v + tone(220,0.07,60)[i]*0.4),
-      "shotgun": noise(0.28,16,3).map((v,i)=>v + tone(90,0.28,14)[i]*0.7),
-      "sniper": noise(0.4,10,6).map((v,i)=>v + tone(70,0.4,9)[i]*0.8),
-      "empty": tone(1800,0.03,80).map(v=>v*0.6),
-      "reload": tone(500,0.04,90).concat(silence(0.15), tone(700,0.05,80)),
-      "hit": tone(900,0.05,60).map((v,i)=>v*0.7 + noise(0.05,80)[i]*0.3),
-      "kill": tt.map(x=>Math.sin(2*Math.PI*(700*x-1500*x*x))*Math.exp(-x*12)),
-      "hurt": cat(tone(110,0.2,18), noise(0.2,25,8).map(v=>v*0.6)).flat(),
-      "boom": noise(0.7,6,12).map((v,i)=>v + tone(55,0.7,5)[i]),
-      "coin": tone(1300,0.06,40).map((v,i)=>v + tone(1900,0.09,30)[i]),
-      "ui": tone(700,0.04,70),
-      "beep": tone(900,0.08,20),
-      "go": tone(1400,0.2,8),
-      "win": tone(600,0.1,10).map((v,i)=>v + tone(800,0.1,10)[i] + tone(1000,0.25,6)[i]),
+      "shot": gunshot(0.18, 45, 110, 900),
+      "smg": gunshot(0.09, 70, 160, 1100),
+      "shotgun": gunshot(0.35, 12, 60, 500, 1.0, 0.8, 0.5),
+      "sniper": gunshot(0.45, 8, 50, 300, 0.8, 1.0, 0.4),
+      "empty": tone(1500,0.05,100).map(v=>v*0.4),
+      "reload": tone(400,0.06,100).concat(silence(0.12), tone(650,0.07,100)),
+      "hit": tone(800,0.06,80).map((v,i)=>v*0.7 + noise(0.04,100)[i]*0.4),
+      "kill": tt.map(x=>Math.sin(2*Math.PI*(500*x-1200*x*x))*Math.exp(-x*10)*0.8),
+      "hurt": tone(100,0.25,25).concat(noise(0.25,30,10).map(v=>v*0.7)).flat(),
+      "boom": noise(0.8,5,20).map((v,i)=>v*1.1).concat(tone(40,0.8,8).map(v=>v*0.9)),
+      "coin": tone(1100,0.08,50).map((v,i)=>v + tone(1700,0.12,40)[i]),
+      "ui": tone(650,0.05,90).map(v=>v*0.5),
+      "beep": tone(850,0.09,60).map(v=>v*0.5),
+      "go": tone(1300,0.25,10).map(v=>v*0.7),
+      "win": tone(550,0.12,15).map((v,i)=>v + tone(800,0.12,15)[i] + tone(1100,0.3,10)[i]),
     };
     // 클리핑 방지 정규화
     for(const k in this.bufs){
@@ -318,7 +368,7 @@ class Ctl{
   shot_pos(){ return this.fire_edge ? this.lock : this.pos; }
 }
 class HandCtl extends Ctl{
-  constructor(){ super(); this.raw="NONE"; this.raw_n=0; this.trig=false; this.armed=false; this.hist=[]; this.filt=null; this.smooth=null; this.palm_t=null; this.palm_used=false; this.peace_prev=false; this.switch_cd=0; this.fext=[false,false,false,false]; this.lost_t=0; }
+  constructor(){ super(); this.raw="NONE"; this.raw_n=0; this.trig=false; this.armed=false; this.hist=[]; this.filt=null; this.smooth=null; this.palm_t=null; this.palm_used=false; this.peace_prev=false; this.switch_cd=0; this.fext=[false,false,false,false]; this.lost_t=0; this.punch_z=null; this.punch_fired=false; this.melee_z=null; this.melee_fired=false; this.melee_ready=true; this.melee_cool=0; }
   _lost(){
     this.present=false; this.pose=this.raw="NONE"; this.raw_n=0;
     this.trigger=this.trig=this.armed=this.guard=false;
@@ -326,6 +376,8 @@ class HandCtl extends Ctl{
     this.palm_t=null; this.palm_used=false; this.palm_prog=0;
     this.peace_prev=false; this.fext=[false,false,false,false]; this.ext=[false,false,false,false];
     this.tr=0; this.lost_t=0;
+    this.punch_z=null; this.punch_fired=false;
+    this.melee_z=null; this.melee_fired=false; this.melee_ready=true; this.melee_cool=0;
   }
   update(lm,now,dt){
     this.fire_edge=this.reload_edge=this.switch_edge=false;
@@ -388,15 +440,39 @@ class HandCtl extends Ctl{
     this.tr=tr;
     const t_up=TRIG_UP,t_down=TRIG_DOWN;
     const prev=this.trig;
+    let fired=false;
     if(raw==="GUN"){
       if(tr>t_up) this.armed=true;
       if(this.armed){
-        if(!this.trig&&tr<t_down) this.trig=true;
+        if(!this.trig&&tr<t_down){ this.trig=true; fired=true; }
         else if(this.trig&&tr>t_up) this.trig=false;
       } else this.trig=false;
     } else { this.armed=false; this.trig=false; }
-    this.trigger=this.trig;
-    this.fire_edge=this.trig&&!prev;
+    const cz=P[9][2];
+    let punch_fired=false;
+    if(this.punch_z!==null){
+      const dz=this.punch_z-cz;
+      if(dz>PUNCH_DOWN){ punch_fired=true; }
+    }
+    this.punch_z=cz;
+    let melee_fired=false;
+    if(this.melee_ready){
+      if(this.melee_z!==null){
+        const dz_m=this.melee_z-cz;
+        if(dz_m>PUNCH_DOWN*0.7 && cz>this.melee_z+PUNCH_DOWN*0.3){
+          melee_fired=true;
+          this.melee_ready=false;
+          this.melee_cool=MELEE_COOLDOWN;
+        }
+      }
+      this.melee_z=cz;
+    } else {
+      this.melee_cool-=dt;
+      if(this.melee_cool<=0){ this.melee_ready=true; this.melee_z=cz; }
+    }
+    this.trigger=this.trig||fired||punch_fired;
+    this.fire_edge=fired||punch_fired;
+    this.melee_edge=melee_fired;
     this.lock=this.pos;
     if(this.fire_edge){
       let locked=false;
@@ -413,7 +489,9 @@ class HandCtl extends Ctl{
     const pe=this.pose==="PEACE";
     if(pe&&!this.peace_prev&&now>=this.switch_cd){ this.switch_edge=true; this.switch_cd=now+0.6; }
     this.peace_prev=pe;
-    this.dbg=`${this.pose}  thumb${tr.toFixed(2)} ${this.trig?"TRIG":""}`;
+    const punch_dbg=this.punch_z!==null?(this.punch_z-cz).toFixed(2):"0.00";
+    const melee_dbg=this.melee_z!==null?(this.melee_z-cz).toFixed(2):"0.00";
+    this.dbg=`${this.pose}  thumb${tr.toFixed(2)} arm=${this.armed?1:0} punch=${punch_dbg} melee=${melee_dbg} ${this.trigger?"FIRE":""}`;
   }
 }
 class MouseCtl extends Ctl{
@@ -939,6 +1017,25 @@ class PvE extends PlayMode{
       this.hit_point(pos[0]+Math.cos(a)*rr,pos[1]+Math.sin(a)*rr,w.dmg,w.pierce);
     }
   }
+  melee_attack(ctl,now){
+    const g=this.g;
+    g.sfx.play("hit");
+    g.fx.shake=Math.max(g.fx.shake,6);
+    g.fx.burst(ctl.pos[0],ctl.pos[1],[255,100,100],12,200,0.4,3,0);
+    let hitAny=false;
+    for(const zb of this.zs){
+      const [zx,yf,h]=zgeom(zb);
+      const dist=hypot(ctl.pos[0]-zx,ctl.pos[1]-(yf-h*0.5));
+      if(dist<MELEE_RANGE){
+        this.damage_zombie(zb,MELEE_DMG,false);
+        hitAny=true;
+      }
+    }
+    if(hitAny){
+      g.sfx.play("boom");
+      g.fx.ring(ctl.pos[0],ctl.pos[1],MELEE_RANGE,[255,80,80],0.4);
+    }
+  }
   use_item(key,ctl){
     const fx=this.g.fx;
     if(key==="medkit"&&this.items.medkit>0&&this.hp<100){
@@ -978,6 +1075,7 @@ class PvE extends PlayMode{
       const ar=this.ar;
       const want=ar.w.auto?ctl.trigger:ctl.fire_edge;
       if(want&&!this.hud_hit(ctl.pos)) this.fire(ctl,now);
+      if(ctl.melee_edge&&!this.hud_hit(ctl.pos)) this.melee_attack(ctl,now);
     }
     // 좀비 스폰
     if(this.spawn_t>0){

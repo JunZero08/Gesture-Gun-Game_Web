@@ -55,9 +55,12 @@ FONT_B = cv2.FONT_HERSHEY_DUPLEX
 # ===================== 튜닝 값 (제스처가 잘 안 맞으면 여기를 조절) =====================
 EXT_RATIO = 1.40          # 손가락이 펴졌다고 보는 (끝-손목)/(뿌리-손목) 거리 비율
 EXT_RATIO_PINKY = 1.30    # 새끼손가락은 짧아서 조금 낮게
-TRIG_DOWN = 0.42          # 엄지끝-검지뿌리 거리 / 손바닥 길이  이하면 '방아쇠 당김'
-TRIG_UP = 0.55            # 이 이상이면 '방아쇠 놓음'
-AIM_LOCK_BACK = 0.07      # 발사 순간 조준점을 이 시간(초) 전 위치로 고정 (엄지 움직일 때 흔들림 보정)
+PUNCH_DOWN = 0.45         # 손이 카메라 쪽으로 급격히 가까워지면 '펀치 포워드(발사)'
+PUNCH_UP = 0.70           # 이 이상이면 펀치 종료(재발사 준비)
+MELEE_COOLDOWN = 0.5      # 근접 공격 쿨다운(초)
+MELEE_RANGE = S(120)      # 근접 공격 판정 거리
+MELEE_DMG = 40            # 근접 공격 데미지
+AIM_LOCK_BACK = 0.07      # 발사 순간 조준점을 이 시간(초) 전 위치로 고정
 DWELL_TIME = 0.9          # HUD 버튼 가리키기 시간
 PALM_RELOAD = 0.35        # 손바닥 장전 유지 시간
 RENDER_MAX_W = 1600       # 렌더링 최대 가로 해상도 (창이 더 커도 이 값으로 그린 뒤 늘림)
@@ -239,30 +242,51 @@ class Sfx:
                 return
         try:
             t = _t(0.2)
+
+            def _env(d, attack=0.005, decay=0.15):
+                n = int(SR * d)
+                env = np.ones(n)
+                a = max(1, int(SR * attack))
+                env[:a] = np.linspace(0, 1, a)
+                env[a:] = np.exp(-np.arange(n - a) / (SR * decay))
+                return env
+
+            def _gunshot(dur, noise_decay, low_freq, high_freq, noise_amp=0.9, low_amp=0.5, high_amp=0.35):
+                n = int(SR * dur)
+                tt = np.arange(n) / SR
+                # 소음 버스트 (총발화음)
+                nz = np.random.uniform(-1, 1, n) * np.exp(-tt * noise_decay)
+                # 저음 뻥 소리 (총구 공명)
+                low = np.sin(2 * np.pi * low_freq * tt) * np.exp(-tt * 40)
+                # 고음 파열음 (탄환 발사 크랙)
+                high = np.sin(2 * np.pi * high_freq * tt) * np.exp(-tt * 80)
+                mix = nz * noise_amp + low * low_amp + high * high_amp
+                return mix * _env(dur)
+
             self.data = {
-                "shot": _wav(_noise(0.14, 38) * 0.9 + _tone(160, 0.14, 30) * 0.6),
-                "smg": _wav(_noise(0.07, 70) + _tone(220, 0.07, 60) * 0.4),
-                "shotgun": _wav(_noise(0.28, 16, 3) + _tone(90, 0.28, 14) * 0.7),
-                "sniper": _wav(_noise(0.4, 10, 6) + _tone(70, 0.4, 9) * 0.8),
-                "empty": _wav(_tone(1800, 0.03, 80) * 0.6),
-                "reload": _wav(_cat(_tone(500, 0.04, 90), _silence(0.15), _tone(700, 0.05, 80))),
-                "hit": _wav(_tone(900, 0.05, 60) * 0.7 + _noise(0.05, 80) * 0.3),
-                "kill": _wav(np.sin(2 * np.pi * (700 * t - 1500 * t ** 2)) * np.exp(-t * 12)),
-                "hurt": _wav(_tone(110, 0.2, 18) + _noise(0.2, 25, 8) * 0.6),
-                "boom": _wav(_noise(0.7, 6, 12) + _tone(55, 0.7, 5)),
-                "coin": _wav(_cat(_tone(1300, 0.06, 40), _tone(1900, 0.09, 30))),
-                "ui": _wav(_tone(700, 0.04, 70)),
-                "beep": _wav(_tone(900, 0.08, 20)),
-                "go": _wav(_tone(1400, 0.2, 8)),
-                "win": _wav(_cat(_tone(600, 0.1, 10), _tone(800, 0.1, 10), _tone(1000, 0.25, 6))),
+                "shot": _wav(_gunshot(0.18, 45, 110, 900)),
+                "smg": _wav(_gunshot(0.09, 70, 160, 1100)),
+                "shotgun": _wav(_gunshot(0.35, 12, 60, 500, noise_amp=1.0, low_amp=0.8, high_amp=0.5)),
+                "sniper": _wav(_gunshot(0.45, 8, 50, 300, noise_amp=0.8, low_amp=1.0, high_amp=0.4)),
+                "empty": _wav(_tone(1500, 0.05, 100) * 0.4),
+                "reload": _wav(_cat(_tone(400, 0.06, 100), _silence(0.12), _tone(650, 0.07, 100))),
+                "hit": _wav(_tone(800, 0.06, 80) * 0.7 + _noise(0.04, 100) * 0.4),
+                "kill": _wav(np.sin(2 * np.pi * (500 * t - 1200 * t ** 2)) * np.exp(-t * 10) * 0.8),
+                "hurt": _wav(_tone(100, 0.25, 25) + _noise(0.25, 30, 10) * 0.7),
+                "boom": _wav(_cat(_noise(0.8, 5, 20) * 1.1, _tone(40, 0.8, 8) * 0.9)),
+                "coin": _wav(_cat(_tone(1100, 0.08, 50), _tone(1700, 0.12, 40))),
+                "ui": _wav(_tone(650, 0.05, 90) * 0.5),
+                "beep": _wav(_tone(850, 0.09, 60) * 0.5),
+                "go": _wav(_tone(1300, 0.25, 10) * 0.7),
+                "win": _wav(_cat(_tone(550, 0.12, 15), _tone(800, 0.12, 15), _tone(1100, 0.3, 10))),
             }
-            if self.cmd is not None:
-                self.dir = tempfile.mkdtemp(prefix="gesture_gun_")
-                for k, v in self.data.items():
-                    p = os.path.join(self.dir, k + ".wav")
-                    with open(p, "wb") as f:
-                        f.write(v)
-                    self.files[k] = p
+            # 모든 OS에서 임시 WAV 파일 생성 (winsound SND_FILENAME용)
+            self.dir = tempfile.mkdtemp(prefix="gesture_gun_")
+            for k, v in self.data.items():
+                p = os.path.join(self.dir, k + ".wav")
+                with open(p, "wb") as f:
+                    f.write(v)
+                self.files[k] = p
         except Exception:
             self.data = {}
             self.cmd = None
@@ -272,7 +296,7 @@ class Sfx:
             return
         try:
             if self.ws is not None:
-                self.ws.PlaySound(self.data[name], self.ws.SND_MEMORY | self.ws.SND_ASYNC)
+                self.ws.PlaySound(self.files[name], self.ws.SND_FILENAME | self.ws.SND_ASYNC)
             elif self.cmd is not None:
                 self.procs = [p for p in self.procs if p.poll() is None]
                 if len(self.procs) >= 6:
@@ -409,7 +433,11 @@ class Ctl:
         self.ext = [False] * 4        # 검지/중지/약지/새끼 펴짐 상태
 
     def shot_pos(self):
-        return self.lock if self.fire_edge else self.pos
+        base = self.lock if self.fire_edge else self.pos
+        if getattr(self, "recoil", 0.0) > 0:
+            rx, ry = getattr(self, "recoil_dir", (0.0, -1.0))
+            return (base[0] + rx * self.recoil * S(10), base[1] + ry * self.recoil * S(10))
+        return base
 
 
 class HandCtl(Ctl):
@@ -431,6 +459,20 @@ class HandCtl(Ctl):
         self.switch_cd = 0.0
         self.fext = [False] * 4     # 손가락별 펴짐 상태(히스테리시스용)
         self.lost_t = 0.0
+        # 엄지 트리거 상태 (방아쇠) - 유지
+        self.trig = False
+        self.armed = False
+        # 손 전체 펀치 모션 상태 (카메라 쪽으로 손 밀기 = 발사)
+        self.punch_z = None
+        self.punch_fired = False
+        # 근접 공격 상태 (복싱 잽: 앞으로 밀었다가 빠르게 되돌리기)
+        self.melee_z = None
+        self.melee_fired = False
+        self.melee_ready = True
+        self.melee_cool = 0.0
+        # 반동
+        self.recoil = 0.0
+        self.recoil_dir = (0.0, -1.0)
 
     def _lost(self):
         self.present = False
@@ -449,6 +491,17 @@ class HandCtl(Ctl):
         self.ext = [False] * 4
         self.tr = 0.0
         self.lost_t = 0.0
+        self.trig = False
+        self.armed = False
+        self.punch_z = None
+        self.punch_fired = False
+        self.melee_z = None
+        self.melee_fired = False
+        self.melee_ready = True
+        self.melee_cool = 0.0
+        # 반동 초기화
+        self.recoil = 0.0
+        self.recoil_dir = (0.0, -1.0)
 
     def update(self, lm, now, dt):
         self.fire_edge = self.reload_edge = self.switch_edge = False
@@ -531,26 +584,67 @@ class HandCtl(Ctl):
             self.dir = (vx / vl, vy / vl)
         self.pts = [(int(p[0]), int(p[1])) for p in P]
 
-        # 방아쇠 (엄지 접기): 기준값은 튜토리얼 보정값(GESTURE)을 사용
+        # 엄지 트리거 (방아쇠) 인식 - 선택 사항 (원하면 사용)
         tr = d3(4, 5) / palm
         self.tr = tr
-        t_up, t_down = GESTURE["trig_up"], GESTURE["trig_down"]
-        prev = self.trig
+        prev_trig = self.trig
+        fired = False
+
         if raw == "GUN":
-            if tr > t_up:
+            if tr > TRIG_UP:
                 self.armed = True
             if self.armed:
-                if not self.trig and tr < t_down:
+                if not self.trig and tr < TRIG_DOWN:
                     self.trig = True
-                elif self.trig and tr > t_up:
+                    fired = True
+                elif self.trig and tr > TRIG_UP:
                     self.trig = False
             else:
                 self.trig = False
         else:
             self.armed = False
             self.trig = False
-        self.trigger = self.trig
-        self.fire_edge = self.trig and not prev
+
+        # 손 전체 펀치 모션 인식 (주요 발사 방식)
+        # 손 중심(9)의 z 값이 급격히 작아지면(카메라 쪽으로 손 밀어냄) 발사
+        cz = P[9][2]
+        punch_fired = False
+        if self.punch_z is not None:
+            dz = self.punch_z - cz  # 양수면 카메라에 가까워짐(펀치)
+            if dz > PUNCH_DOWN:
+                punch_fired = True
+        self.punch_z = cz
+
+        # 근접 공격 인식 (복싱 잽: 손 내밀었다가 빠르게 되돌리기)
+        melee_fired = False
+        if self.melee_ready:
+            if self.melee_z is not None:
+                dz_melee = self.melee_z - cz  # 앞으로 밀었음
+                if dz_melee > PUNCH_DOWN * 0.7:
+                    # 이미 앞으로 밀었는데 다시 뒤로 빠지면 잽 완성
+                    if cz > self.melee_z + PUNCH_DOWN * 0.3:
+                        melee_fired = True
+                        self.melee_ready = False
+                        self.melee_cool = MELEE_COOLDOWN
+            self.melee_z = cz
+        else:
+            self.melee_cool -= dt
+            if self.melee_cool <= 0:
+                self.melee_ready = True
+                self.melee_z = cz
+
+        # 세 가지 발사 방식 중 하나라도 감지되면 발사
+        self.trigger = self.trig or fired or punch_fired
+        self.fire_edge = fired or punch_fired
+        self.melee_edge = melee_fired
+
+        # 반동 적용 (발사 시 손 전체가 뒤로 튕기는 모션)
+        if self.fire_edge:
+            self.recoil = min(1.0, self.recoil + 0.50)
+            self.recoil_dir = self.dir
+        else:
+            self.recoil = max(0.0, self.recoil - dt * 8.0)
+
         self.lock = self.pos
         if self.fire_edge:
             for t, x, y in reversed(self.hist):
@@ -578,9 +672,11 @@ class HandCtl(Ctl):
             self.switch_edge = True
             self.switch_cd = now + 0.6
         self.peace_prev = pe
-        self.dbg = "%s  idx%.2f/%d mid%.2f/%d rng%.2f/%d pnk%.2f/%d  thumb%.2f %s" % (
-            self.pose, rat[0], angs[0], rat[1], angs[1], rat[2], angs[2], rat[3], angs[3], tr,
-            "TRIG" if self.trig else "")
+        punch_dbg = 0.0 if self.punch_z is None else (self.punch_z - cz)
+        melee_dbg = 0.0 if self.melee_z is None else (self.melee_z - cz)
+        self.dbg = "%s  idx%.2f/%d mid%.2f/%d rng%.2f/%d pnk%.2f/%d  thumb=%.2f arm=%d punch=%.2f melee=%.2f %s" % (
+            self.pose, rat[0], angs[0], rat[1], angs[1], rat[2], angs[2], rat[3], angs[3],
+            self.tr, 1 if self.armed else 0, punch_dbg, melee_dbg, "FIRE" if self.trigger else "")
 
 
 class MouseCtl(Ctl):
@@ -657,20 +753,69 @@ class BotCtl(Ctl):
 
 # ===================== 무기 / 저장 데이터 =====================
 WEAPONS = {
-    "pistol": dict(name="PISTOL", dmg=34, rate=0.30, mag=12, reload=1.0, pellets=1, spread=0, auto=False,
-                   pierce=False, price=0, pack=0, packcost=0, pvp=11, pvp_spread=0.015, col=(220, 220, 220), snd="shot"),
-    "smg": dict(name="SMG", dmg=15, rate=0.085, mag=30, reload=1.5, pellets=1, spread=18, auto=True,
-                pierce=False, price=300, pack=60, packcost=60, pvp=4.5, pvp_spread=0.05, col=(80, 220, 255), snd="smg"),
-    "rifle": dict(name="RIFLE", dmg=26, rate=0.13, mag=30, reload=1.8, pellets=1, spread=7, auto=True,
-                  pierce=False, price=550, pack=60, packcost=75, pvp=6.5, pvp_spread=0.025, col=(255, 180, 80), snd="smg"),
+    # 권총류
+    "pistol":  dict(name="PISTOL",   dmg=34,  rate=0.30, mag=12, reload=1.0, pellets=1, spread=0,  auto=False,
+                   pierce=False, price=0,   pack=0,  packcost=0,   pvp=11,  pvp_spread=0.015, col=(220, 220, 220),  snd="shot"),
+    "glock17": dict(name="GLOCK 17", dmg=28,  rate=0.22, mag=17, reload=1.2, pellets=1, spread=0,  auto=False,
+                   pierce=False, price=450, pack=34, packcost=55,  pvp=9,   pvp_spread=0.012, col=(200, 200, 200), snd="shot"),
+    "m1911":   dict(name="M1911", dmg=42,  rate=0.35, mag=7, reload=1.5, pellets=1, spread=0,  auto=False,
+                   pierce=False, price=500, pack=14, packcost=65, pvp=13,  pvp_spread=0.008, col=(180, 160, 120), snd="shot"),
+    "deagle":  dict(name="DESERT EAGLE", dmg=85, rate=0.55, mag=7, reload=2.0, pellets=1, spread=5, auto=False,
+                   pierce=True, price=1200, pack=14, packcost=120, pvp=25, pvp_spread=0.02, col=(220, 180, 60), snd="shot"),
+    # 기관단총 / PDW
+    "smg":     dict(name="SMG",     dmg=15, rate=0.085, mag=30, reload=1.5, pellets=1, spread=18, auto=True,
+                   pierce=False, price=300, pack=60, packcost=60, pvp=4.5, pvp_spread=0.05, col=(80, 220, 255), snd="smg"),
+    "mp5":     dict(name="MP5", dmg=22, rate=0.07, mag=30, reload=1.6, pellets=1, spread=14, auto=True,
+                   pierce=False, price=650, pack=60, packcost=70, pvp=5, pvp_spread=0.04, col=(100, 180, 255), snd="smg"),
+    "ump45":   dict(name="UMP45", dmg=30, rate=0.10, mag=25, reload=1.8, pellets=1, spread=10, auto=True,
+                   pierce=False, price=700, pack=50, packcost=75, pvp=6, pvp_spread=0.025, col=(140, 120, 200), snd="smg"),
+    "mac10":   dict(name="MAC-10", dmg=18, rate=0.05, mag=30, reload=1.4, pellets=1, spread=22, auto=True,
+                   pierce=False, price=550, pack=60, packcost=60, pvp=4, pvp_spread=0.07, col=(150, 150, 150), snd="smg"),
+    "vector":  dict(name="VECTOR", dmg=24, rate=0.055, mag=25, reload=1.5, pellets=1, spread=10, auto=True,
+                   pierce=False, price=800, pack=50, packcost=70, pvp=5.5, pvp_spread=0.03, col=(255, 100, 200), snd="smg"),
+    "p90":     dict(name="P90", dmg=20, rate=0.065, mag=50, reload=2.2, pellets=1, spread=16, auto=True,
+                   pierce=False, price=850, pack=100, packcost=80, pvp=4.5, pvp_spread=0.05, col=(255, 200, 100), snd="smg"),
+    "mp7":     dict(name="MP7", dmg=18, rate=0.06, mag=40, reload=1.8, pellets=1, spread=12, auto=True,
+                   pierce=True, price=950, pack=80, packcost=90, pvp=5, pvp_spread=0.03, col=(200, 150, 255), snd="smg"),
+    # 돌격소총
+    "rifle":   dict(name="RIFLE",   dmg=26, rate=0.13, mag=30, reload=1.8, pellets=1, spread=7,  auto=True,
+                   pierce=False, price=550, pack=60, packcost=75, pvp=6.5, pvp_spread=0.025, col=(255, 180, 80), snd="smg"),
+    "ak47":    dict(name="AK-47", dmg=38, rate=0.09, mag=30, reload=2.0, pellets=1, spread=12, auto=True,
+                   pierce=False, price=900, pack=60, packcost=90, pvp=7, pvp_spread=0.03, col=(120, 100, 60), snd="smg"),
+    "m4a1":    dict(name="M4A1", dmg=32, rate=0.085, mag=30, reload=1.8, pellets=1, spread=8, auto=True,
+                   pierce=False, price=1100, pack=60, packcost=85, pvp=6, pvp_spread=0.02, col=(100, 140, 100), snd="smg"),
+    "scar":    dict(name="SCAR-L", dmg=35, rate=0.095, mag=30, reload=2.0, pellets=1, spread=10, auto=True,
+                   pierce=False, price=1200, pack=60, packcost=95, pvp=6.5, pvp_spread=0.025, col=(80, 160, 100), snd="smg"),
+    "g36":     dict(name="G36C", dmg=30, rate=0.10, mag=30, reload=1.9, pellets=1, spread=11, auto=True,
+                   pierce=False, price=1000, pack=60, packcost=85, pvp=6, pvp_spread=0.028, col=(120, 160, 90), snd="smg"),
+    "aug":     dict(name="AUG", dmg=34, rate=0.09, mag=30, reload=2.0, pellets=1, spread=9, auto=True,
+                   pierce=False, price=1100, pack=60, packcost=90, pvp=6.2, pvp_spread=0.022, col=(90, 150, 110), snd="smg"),
+    "m249":    dict(name="M249", dmg=28, rate=0.075, mag=100, reload=3.5, pellets=1, spread=20, auto=True,
+                   pierce=False, price=1600, pack=200, packcost=150, pvp=5, pvp_spread=0.06, col=(100, 100, 80), snd="smg"),
+    # 샷건
     "shotgun": dict(name="SHOTGUN", dmg=14, rate=0.80, mag=6, reload=2.0, pellets=8, spread=100, auto=False,
-                    pierce=False, price=500, pack=12, packcost=80, pvp=4, pvp_spread=0.20, col=(80, 150, 255), snd="shotgun"),
-    "sniper": dict(name="SNIPER", dmg=140, rate=1.10, mag=5, reload=2.2, pellets=1, spread=0, auto=False,
+                   pierce=False, price=500, pack=12, packcost=80, pvp=4, pvp_spread=0.20, col=(80, 150, 255), snd="shotgun"),
+    "rem870":  dict(name="REM 870", dmg=16, rate=0.75, mag=6, reload=2.2, pellets=10, spread=110, auto=False,
+                   pierce=False, price=750, pack=12, packcost=90, pvp=5, pvp_spread=0.22, col=(80, 100, 220), snd="shotgun"),
+    "m1014":   dict(name="M1014", dmg=18, rate=0.45, mag=7, reload=2.5, pellets=9, spread=95, auto=False,
+                   pierce=False, price=900, pack=14, packcost=100, pvp=6, pvp_spread=0.18, col=(60, 120, 255), snd="shotgun"),
+    # 저격소총
+    "sniper":  dict(name="SNIPER",  dmg=140, rate=1.10, mag=5, reload=2.2, pellets=1, spread=0, auto=False,
                    pierce=True, price=800, pack=10, packcost=100, pvp=42, pvp_spread=0.0, col=(120, 255, 120), snd="sniper"),
+    "m24":     dict(name="M24", dmg=160, rate=1.2, mag=5, reload=2.5, pellets=1, spread=0, auto=False,
+                   pierce=True, price=1400, pack=10, packcost=130, pvp=40, pvp_spread=0.0, col=(100, 200, 100), snd="sniper"),
+    "awp":     dict(name="AWP", dmg=200, rate=1.5, mag=5, reload=2.8, pellets=1, spread=0, auto=False,
+                   pierce=True, price=1800, pack=10, packcost=150, pvp=50, pvp_spread=0.0, col=(0, 255, 180), snd="sniper"),
+    # 로켓 / 폭발물
+    "rpg7":    dict(name="RPG-7", dmg=500, rate=1.5, mag=1, reload=3.0, pellets=1, spread=0, auto=False,
+                   pierce=True, price=2500, pack=2, packcost=300, pvp=0, pvp_spread=0.15, col=(255, 80, 60), snd="boom"),
     "grenade": dict(name="GRENADE", dmg=170, rate=0.9, mag=1, reload=0, pellets=1, spread=0, auto=False,
-                    pierce=False, price=60, pack=1, packcost=60, pvp=0, pvp_spread=0, col=(60, 160, 255), snd="shot"),
+                   pierce=False, price=60, pack=1, packcost=60, pvp=0, pvp_spread=0, col=(60, 160, 255), snd="shot"),
 }
-GUNS = ["pistol", "smg", "rifle", "shotgun", "sniper"]
+GUNS = ["pistol", "glock17", "m1911", "deagle", "smg", "mp5", "ump45", "mac10", "vector", "p90", "mp7",
+        "rifle", "ak47", "m4a1", "scar", "g36", "aug", "m249",
+        "shotgun", "rem870", "m1014",
+        "sniper", "m24", "awp"]
 ORDER = GUNS + ["grenade"]
 ITEMS = {
     "medkit": dict(name="MEDKIT", price=50, desc="Heal 50 HP  (key H / hold on HUD)"),
@@ -1298,6 +1443,24 @@ class PvE(PlayMode):
             a, rr = random.uniform(0, 6.283), math.sqrt(random.random()) * S(w["spread"])
             self.hit_point(pos[0] + math.cos(a) * rr, pos[1] + math.sin(a) * rr, w["dmg"], w["pierce"])
 
+    def melee_attack(self, ctl, now):
+        """근접 공격: 손 앞 방향의 좀비를 때림"""
+        g = self.g
+        g.sfx.play("hit")
+        g.fx.shake = max(g.fx.shake, 6)
+        g.fx.burst(ctl.pos[0], ctl.pos[1], (255, 100, 100), 12, 200, 0.4, 3, 0)
+        # 손 앞 방향에 있는 좀비 판정
+        hit_any = False
+        for zb in list(self.zs):
+            zx, yf, h = zgeom(zb)
+            dist = math.hypot(ctl.pos[0] - zx, ctl.pos[1] - (yf - h * 0.5))
+            if dist < MELEE_RANGE:
+                self.damage_zombie(zb, MELEE_DMG, head=False)
+                hit_any = True
+        if hit_any:
+            g.sfx.play("boom")
+            g.fx.ring(ctl.pos[0], ctl.pos[1], MELEE_RANGE, (255, 80, 80), 0.4)
+
     def use_item(self, key, ctl):
         fx = self.g.fx
         if key == "medkit" and self.items["medkit"] > 0 and self.hp < 100:
@@ -1354,6 +1517,9 @@ class PvE(PlayMode):
             want = ctl.trigger if ar.w["auto"] else ctl.fire_edge
             if want and not self.hud_hit(ctl.pos):
                 self.fire(ctl, now)
+            # 근접 공격 (복싱 잽)
+            if ctl.melee_edge and not self.hud_hit(ctl.pos):
+                self.melee_attack(ctl, now)
 
         # 수류탄
         for n in list(self.nades):
@@ -2715,7 +2881,15 @@ class Game:
 
     def draw_hand(self, img, ctl, only_small=False):
         if ctl is not None and self.skel and ctl.present:
-            self.skeleton(img, ctl, (60, 220, 60), thin=True)
+            # 반동으로 손 전체가 뒤로 튕기는 모션
+            rx, ry = ctl.recoil_dir
+            r = ctl.recoil * S(14)
+            pts = [(int(p[0] + rx * r), int(p[1] + ry * r)) for p in ctl.pts]
+            th = T(1)
+            for a, b in CONN:
+                cv2.line(img, pts[a], pts[b], C((60, 220, 60)), th, cv2.LINE_AA)
+            for p in pts:
+                cv2.circle(img, p, T(2), (255, 120, 0), -1)
 
     def draw_cursor(self, img, ctl):
         if ctl.present:
@@ -2773,25 +2947,32 @@ def prep_frame(frame, W, H, det_w=640):
     return bg, det
 
 
-def open_camera(index):
+def open_camera(index=0):
     if sys.platform.startswith("win"):
         backends = ((cv2.CAP_DSHOW, "DSHOW"), (cv2.CAP_MSMF, "MSMF"), (cv2.CAP_ANY, "ANY"))
     else:
         backends = ((cv2.CAP_ANY, "ANY"),)
-    for be, name in backends:
-        cap = cv2.VideoCapture(index, be)
-        if cap.isOpened():
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-            try:
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            except Exception:
-                pass
-            ok, _ = cap.read()
-            if ok:
-                print("카메라 열림:", name)
-                return cap
-        cap.release()
+    # 카메라 0부터 5까지 순차 시도 (내장/외장 웹캠 모두 대응, --cam 지정 불필요)
+    for idx in range(index, index + 6):
+        for be, name in backends:
+            cap = cv2.VideoCapture(idx, be)
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                try:
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                except Exception:
+                    pass
+                # 프레임 읽기 테스트 (최대 5회)
+                ok = False
+                for _ in range(5):
+                    ok, _ = cap.read()
+                    if ok:
+                        break
+                if ok:
+                    print("카메라 열림: 인덱스 %d, 백엔드 %s" % (idx, name))
+                    return cap
+                cap.release()
     return None
 
 
@@ -2846,9 +3027,13 @@ def main():
     cap, mp, landmarker = None, None, None
     mouse_mode = args.mouse
     if not mouse_mode:
+        # --cam 지정 없이도 카메라 0~5 자동 탐색
         cap = open_camera(args.cam)
         if cap is None:
-            print("웹캠을 열 수 없어 마우스 모드로 시작합니다. (--cam 번호 확인)")
+            print("사용 가능한 웹캠을 찾을 수 없습니다.")
+            print("  - Windows 카메라 권한: 설정 > 개인정보 보호 및 보안 > 카메라 > '데스크톱 앱이 카메라에 액세스하도록 허용'을 켬")
+            print("  - 특정 카메라 강제 지정: py main.py --cam 1   (또는 --cam 2, --cam 3, --cam 4, --cam 5)")
+            print("  - 카메라 없이 마우스로 테스트: py main.py --mouse")
             mouse_mode = True
         else:
             try:

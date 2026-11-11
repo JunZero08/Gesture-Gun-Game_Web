@@ -1,29 +1,37 @@
 {
- "coins": 240,
+ "coins": 1359,
  "owned": [
-  "pistol"
+  "pistol",
+  "smg",
+  "glock17"
  ],
- "equipped": "pistol",
+ "equipped": "glock17",
  "ammo": {
-  "smg": 0,
+  "smg": 90,
   "rifle": 0,
   "shotgun": 0,
-  "sniper": 0
+  "sniper": 0,
+  "glock17": 0
  },
  "items": {
-  "medkit": 1,
-  "armor": 0,
-  "grenade": 0
+  "medkit": 4,
+  "armor": 1,
+  "grenade": 1
  },
  "best": {
-  "pve_wave": 1,
-  "pve_score": 80,
+  "pve_wave": 7,
+  "pve_score": 3780,
   "range": 0,
-  "pvp_matches": 0
+  "pvp_matches": 1
  },
  "settings": {
-  "difficulty": 1,
-  "sound": true
+  "difficulty": 0,
+  "sound": true,
+  "tutorial_done": true,
+  "trig": [
+   0.635,
+   0.695
+  ]
  },
- "kills": 12
+ "kills": 199
 }
