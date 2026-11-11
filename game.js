@@ -231,21 +231,21 @@ class Sfx{
     ensureAudio();
     const tt=t(0.2);
     this.bufs = {
-      "shot": cat(noise(0.14,38).map(v=>v*0.9), tone(160,0.14,30).map(v=>v*0.6)).map((v,i)=>(noise(0.14,38)[i]*0.9+tone(160,0.14,30)[i]*0.6)),
-      "smg": cat(noise(0.07,70), tone(220,0.07,60).map(v=>v*0.4)).map((v,i)=>noise(0.07,70)[i]+tone(220,0.07,60)[i]*0.4),
-      "shotgun": cat(noise(0.28,16,3).map((v,i)=>v), tone(90,0.28,14).map((v,i)=>v*0.7)).map((v,i)=>noise(0.28,16,3)[i]+tone(90,0.28,14)[i]*0.7),
-      "sniper": cat(noise(0.4,10,6).map((v,i)=>v), tone(70,0.4,9).map((v,i)=>v*0.8)).map((v,i)=>noise(0.4,10,6)[i]+tone(70,0.4,9)[i]*0.8),
+      "shot": noise(0.14,38).map((v,i)=>v*0.9 + tone(160,0.14,30)[i]*0.6),
+      "smg": noise(0.07,70).map((v,i)=>v + tone(220,0.07,60)[i]*0.4),
+      "shotgun": noise(0.28,16,3).map((v,i)=>v + tone(90,0.28,14)[i]*0.7),
+      "sniper": noise(0.4,10,6).map((v,i)=>v + tone(70,0.4,9)[i]*0.8),
       "empty": tone(1800,0.03,80).map(v=>v*0.6),
-      "reload": cat(tone(500,0.04,90), silence(0.15), tone(700,0.05,80)),
-      "hit": cat(tone(900,0.05,60).map((v,i)=>v*0.7), noise(0.05,80).map((v,i)=>v*0.3)).flat(),
+      "reload": tone(500,0.04,90).concat(silence(0.15), tone(700,0.05,80)),
+      "hit": tone(900,0.05,60).map((v,i)=>v*0.7 + noise(0.05,80)[i]*0.3),
       "kill": tt.map(x=>Math.sin(2*Math.PI*(700*x-1500*x*x))*Math.exp(-x*12)),
       "hurt": cat(tone(110,0.2,18), noise(0.2,25,8).map(v=>v*0.6)).flat(),
-      "boom": cat(noise(0.7,6,12), tone(55,0.7,5)).flat(),
-      "coin": cat(tone(1300,0.06,40), tone(1900,0.09,30)),
+      "boom": noise(0.7,6,12).map((v,i)=>v + tone(55,0.7,5)[i]),
+      "coin": tone(1300,0.06,40).map((v,i)=>v + tone(1900,0.09,30)[i]),
       "ui": tone(700,0.04,70),
       "beep": tone(900,0.08,20),
       "go": tone(1400,0.2,8),
-      "win": cat(tone(600,0.1,10), tone(800,0.1,10), tone(1000,0.25,6)),
+      "win": tone(600,0.1,10).map((v,i)=>v + tone(800,0.1,10)[i] + tone(1000,0.25,6)[i]),
     };
     // 클리핑 방지 정규화
     for(const k in this.bufs){
@@ -979,6 +979,15 @@ class PvE extends PlayMode{
       const want=ar.w.auto?ctl.trigger:ctl.fire_edge;
       if(want&&!this.hud_hit(ctl.pos)) this.fire(ctl,now);
     }
+    // 좀비 스폰
+    if(this.spawn_t>0){
+      this.spawn_t-=dt;
+      if(this.spawn_t<=0&&this.queue.length>0){
+        const kind=this.queue.shift();
+        this.zs.push(new Zombie(kind,this.wave));
+        this.spawn_t=randomRange(0.8,1.5);
+      }
+    }
     for(const nade of this.nades){
       if(now>=nade[2]){
         this.nades=this.nades.filter(x=>x!==nade);
@@ -1000,24 +1009,39 @@ class PvE extends PlayMode{
   draw(bg,now){
     const g=this.g;
     const c=bg.getContext('2d');
-    c.drawImage(bg,0,0);
-    // shake
+    // shake (화면 전체 흔들림)
     if(g.fx.shake>0){
+      c.save();
       const sx=(Math.random()-0.5)*g.fx.shake, sy=(Math.random()-0.5)*g.fx.shake;
       c.translate(sx,sy);
-    }
-    if(g.fx.flash>0){
-      c.fillStyle="rgba(255,255,255,"+g.fx.flash+")";
-      c.fillRect(0,0,V.W,V.H);
-    }
-    if(g.fx.hurt>0){
-      c.fillStyle="rgba(255,0,0,"+Math.min(1,g.fx.hurt*0.4)+")";
-      c.fillRect(0,0,V.W,V.H);
-    }
-    for(const zb of this.zs) draw_zombie(c,zb,now);
-    for(const crate of this.crates){
-      c.fillStyle=[120,255,120];
-      c.beginPath(); c.arc(crate[0],crate[1]-S(18),S(44),0,Math.PI*2); c.fill();
+      if(g.fx.flash>0){
+        c.fillStyle="rgba(255,255,255,"+g.fx.flash+")";
+        c.fillRect(0,0,V.W,V.H);
+      }
+      if(g.fx.hurt>0){
+        c.fillStyle="rgba(255,0,0,"+Math.min(1,g.fx.hurt*0.4)+")";
+        c.fillRect(0,0,V.W,V.H);
+      }
+      for(const zb of this.zs) draw_zombie(c,zb,now);
+      for(const crate of this.crates){
+        c.fillStyle=[120,255,120];
+        c.beginPath(); c.arc(crate[0],crate[1]-S(18),S(44),0,Math.PI*2); c.fill();
+      }
+      c.restore();
+    } else {
+      if(g.fx.flash>0){
+        c.fillStyle="rgba(255,255,255,"+g.fx.flash+")";
+        c.fillRect(0,0,V.W,V.H);
+      }
+      if(g.fx.hurt>0){
+        c.fillStyle="rgba(255,0,0,"+Math.min(1,g.fx.hurt*0.4)+")";
+        c.fillRect(0,0,V.W,V.H);
+      }
+      for(const zb of this.zs) draw_zombie(c,zb,now);
+      for(const crate of this.crates){
+        c.fillStyle=[120,255,120];
+        c.beginPath(); c.arc(crate[0],crate[1]-S(18),S(44),0,Math.PI*2); c.fill();
+      }
     }
     this.draw_weapon_hud(c,now,V.H-S(40));
     this.draw_cross(c,ctl,now);
@@ -1077,15 +1101,16 @@ class PvP extends PlayMode{
   draw(bg,now){
     const g=this.g;
     const c=bg.getContext('2d');
-    c.drawImage(bg,0,0);
-    this.draw_cross(c,g.ctl||{present:false},now);
-    this.draw_menu_btn(c,g.ctl||{present:false});
+    const pctl = g.ptr()||{present:false};
+    this.draw_cross(c,pctl,now);
+    this.draw_menu_btn(c,pctl);
     text(c,"YOU "+Math.floor(this.hp)+"HP",S(14),S(34),0.7,[120,255,120],2);
     text(c,"ENEMY "+Math.floor(this.foe_hp)+"HP",V.W-S(14),S(34),0.7,[255,120,120],2,"r");
     c.fillStyle=[80,150,255];
     c.beginPath(); c.arc(this.foe.pos[0],this.foe.pos[1],S(20),0,Math.PI*2); c.fill();
+    if(this.state==="WIN") text(c,"YOU WIN!",V.W/2,V.H/2,1.5,[0,255,0],3,"c");
     this.g.fx.draw(c);
-    g.draw_cursor(c,g.ctl||{present:false});
+    g.draw_cursor(c,pctl);
     return bg;
   }
 }
@@ -1149,10 +1174,16 @@ class Game{
       if(e.code==="Escape"){ this.go("menu"); }
     });
     window.addEventListener("keyup",e=>{ this.keys[e.code]=false; });
-    canvas.addEventListener("mousedown",e=>{ this.mouse.event("mousedown",e.clientX,e.clientY); });
-    canvas.addEventListener("mouseup",e=>{ this.mouse.event("mouseup",e.clientX,e.clientY); });
-    canvas.addEventListener("mousemove",e=>{ this.mouse.event("mousemove",e.clientX,e.clientY); });
-    canvas.addEventListener("contextmenu",e=>{ e.preventDefault(); this.mouse.event("contextmenu",e.clientX,e.clientY); });
+    const getCanvasPos=(e)=>{
+      const rect=canvas.getBoundingClientRect();
+      const scaleX=canvas.width/rect.width;
+      const scaleY=canvas.height/rect.height;
+      return [(e.clientX-rect.left)*scaleX,(e.clientY-rect.top)*scaleY];
+    };
+    canvas.addEventListener("mousedown",e=>{ const p=getCanvasPos(e); this.mouse.event("mousedown",p[0],p[1]); });
+    canvas.addEventListener("mouseup",e=>{ const p=getCanvasPos(e); this.mouse.event("mouseup",p[0],p[1]); });
+    canvas.addEventListener("mousemove",e=>{ const p=getCanvasPos(e); this.mouse.event("mousemove",p[0],p[1]); });
+    canvas.addEventListener("contextmenu",e=>{ e.preventDefault(); const p=getCanvasPos(e); this.mouse.event("contextmenu",p[0],p[1]); });
     canvas.addEventListener("click",()=>{ ensureAudio(); });
     window.addEventListener("click",()=>{ ensureAudio(); });
   }
