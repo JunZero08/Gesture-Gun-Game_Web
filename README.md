@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Gesture Gun — 손가락 권총 제스처 슈팅 게임
 
 웹캠 + MediaPipe 기반 손가락 제스처 슈팅 게임입니다.  
@@ -58,3 +59,6 @@ py main.py --mouse
 ## 라이선스
 
 원본 코드는 수정 없이 그대로 보존됩니다.
+=======
+# Gesture-Gun-Game_Web
+>>>>>>> 9aa515b9b6195e72eccd6879b65b094aac93f439
