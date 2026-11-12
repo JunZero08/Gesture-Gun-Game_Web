@@ -1487,6 +1487,13 @@ class PvE(PlayMode):
             g.fx.text(ctl.pos[0], ctl.pos[1] - S(40), f"x{combo} COMBO" if combo > 1 else "MELEE",
                       (255, 100, 100), 0.8)
             g.fx.ring(ctl.pos[0], ctl.pos[1], S(MELEE_RANGE), (255, 80, 80), 0.4)
+            # 콤보 보상 코인
+            if combo >= 2:
+                bonus = int(combo * 2)
+                self.g.save.d["coins"] += bonus
+                self.g.save.write()
+                g.fx.text(ctl.pos[0], ctl.pos[1] - S(70), f"+${bonus} COMBO", (0, 255, 255), 0.9)
+                g.sfx.play("coin")
 
     def use_item(self, key, ctl):
         fx = self.g.fx
@@ -2721,6 +2728,9 @@ class Game:
         self.cam_index = 1   # 기본 카메라 번호 (고정값: 1)
         self.cap = None      # 카메라 캡처 객체
         self.mode = Menu(self)
+        self.volume = float(self.save.d["settings"].get("volume", 1.0))   # 사운드 볼륨 0.0~1.0
+        self.debug_tune = False   # 디버그 모드에서 실시간 튜닝 활성화
+        self.auto_save_t = 0.0    # 자동 저장 타이머
 
     # ---------- 유틸 ----------
     def ptr(self):
@@ -2757,6 +2767,7 @@ class Game:
         self.mouse.event(ev, x, y, flags)
 
     def on_key(self, k):
+        global PUNCH_DOWN
         if k == 255 or k < 0:
             return
         ch = chr(k).lower() if 0 <= k < 128 else ""
@@ -2799,6 +2810,42 @@ class Game:
             self.skel = not self.skel
         elif ch == "i":
             self.debug = not self.debug
+            self.debug_tune = self.debug
+            self.toast("DEBUG " + ("ON" if self.debug else "OFF") + "  [Q/W TRIG_DOWN, E/R TRIG_UP, A/S PUNCH, Z/X VOLUME]")
+        elif ch == "q":   # TRIG_DOWN 낮춤 (더 민감)
+            if self.debug_tune:
+                GESTURE["trig_down"] = max(0.05, GESTURE["trig_down"] - 0.05)
+                self.toast("TRIG_DOWN: %.2f" % GESTURE["trig_down"])
+        elif ch == "w":   # TRIG_DOWN 높임
+            if self.debug_tune:
+                GESTURE["trig_down"] = min(1.5, GESTURE["trig_down"] + 0.05)
+                self.toast("TRIG_DOWN: %.2f" % GESTURE["trig_down"])
+        elif ch == "e":   # TRIG_UP 낮춤
+            if self.debug_tune:
+                GESTURE["trig_up"] = max(0.10, GESTURE["trig_up"] - 0.05)
+                self.toast("TRIG_UP: %.2f" % GESTURE["trig_up"])
+        elif ch == "r":   # TRIG_UP 높임
+            if self.debug_tune:
+                GESTURE["trig_up"] = min(2.0, GESTURE["trig_up"] + 0.05)
+                self.toast("TRIG_UP: %.2f" % GESTURE["trig_up"])
+        elif ch == "a":   # PUNCH_DOWN 낮춤 (더 민감)
+            if self.debug_tune:
+                PUNCH_DOWN = max(0.10, PUNCH_DOWN - 0.05)
+                self.toast("PUNCH_DOWN: %.2f" % PUNCH_DOWN)
+        elif ch == "s":   # PUNCH_DOWN 높임
+            if self.debug_tune:
+                PUNCH_DOWN = min(1.0, PUNCH_DOWN + 0.05)
+                self.toast("PUNCH_DOWN: %.2f" % PUNCH_DOWN)
+        elif ch == "z":   # 볼륨 낮춤
+            self.volume = max(0.0, self.volume - 0.1)
+            self.save.d["settings"]["volume"] = self.volume
+            self.save.write()
+            self.toast("VOLUME: %.0f%%" % (self.volume * 100))
+        elif ch == "x":   # 볼륨 높임
+            self.volume = min(1.0, self.volume + 0.1)
+            self.save.d["settings"]["volume"] = self.volume
+            self.save.write()
+            self.toast("VOLUME: %.0f%%" % (self.volume * 100))
         elif ch == "v":
             if not self.mouse_mode:
                 # 카메라 모드에서 마우스 모드로 전환
@@ -2870,6 +2917,11 @@ class Game:
         self.toasts = [t for t in self.toasts if t[1] > now]
         if dt > 0:
             self.fps = self.fps * 0.9 + (1.0 / dt) * 0.1
+        # 자동 저장 (5초 주기)
+        self.auto_save_t += dt
+        if self.auto_save_t >= 5.0:
+            self.auto_save_t = 0.0
+            self.save.write()
 
     # ---------- 그리기 ----------
     def synth_bg(self):
@@ -3074,6 +3126,16 @@ def main():
 
     cap, mp, landmarker = None, None, None
     mouse_mode = args.mouse
+    game = Game(mouse_mode)
+    cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(WIN, iw, ih)
+    W, H = fit_size(iw, ih)
+    V.set(W, H)
+    cv2.setMouseCallback(WIN, game.on_mouse)
+    fullscreen = False
+    if args.fullscreen:
+        game.fullscreen_req = True
+
     if not mouse_mode:
         # --cam 지정 없이도 카메라 0~5 자동 탐색 (기본값: 1번 카메라)
         cap = open_camera(game.cam_index)
@@ -3091,16 +3153,6 @@ def main():
                 print("MediaPipe 준비 실패 -> 마우스 모드:", e)
                 cap.release()
                 cap, mouse_mode = None, True
-
-    cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WIN, iw, ih)
-    W, H = fit_size(iw, ih)
-    V.set(W, H)
-    game = Game(mouse_mode)
-    cv2.setMouseCallback(WIN, game.on_mouse)
-    fullscreen = False
-    if args.fullscreen:
-        game.fullscreen_req = True
 
     t0 = prev = time.time()
     last_ts = -1
