@@ -612,6 +612,10 @@ class HandCtl(Ctl):
 
         palm = max(d3(0, 9), 1.0)
 
+        # 엄지 트리거 거리 (건 포즈 판정에도 사용)
+        tr = d3(4, 5) / palm
+        self.tr = tr
+
         # 손가락 펴짐: (손목 기준 길이 비율) + (관절 각도), 켜짐/꺼짐 기준을 다르게 해서 깜빡임 방지
         ext, rat, angs = [], [], []
         for k, (mcp, pip, dip, tip) in enumerate(FINGER_IDS):
@@ -735,8 +739,7 @@ class HandCtl(Ctl):
         self.pts = [(int(p[0]), int(p[1])) for p in P]
 
         # 엄지 트리거 (방아쇠) 인식 - 선택 사항 (원하면 사용)
-        tr = d3(4, 5) / palm
-        self.tr = tr
+        # tr와 self.tr는 이미 위에서 계산됨 (건 포즈 판정용)
         prev_trig = self.trig
         fired = False
 
