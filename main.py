@@ -701,7 +701,11 @@ class HandCtl(Ctl):
             best = None
             best_d = GAZE_LOCK_DIST
             for zb in self.ar_targets:
-                zb_c = zb.center
+                try:
+                    zx, zy, zh = zgeom(zb)
+                    zb_c = (zx, zy - zh * 0.5)
+                except Exception:
+                    continue
                 d = math.hypot(self.pos[0] - zb_c[0], self.pos[1] - zb_c[1])
                 if d < best_d:
                     # 시선 방향과 타겟 방향 체크
