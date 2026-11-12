@@ -79,6 +79,21 @@ ANG_OFF = 128.0           # 이 이하로 내려가면 '접힘'
 LOST_GRACE = 0.18         # 손을 잠깐(초) 놓쳐도 이전 상태를 유지
 GESTURE = dict(trig_down=TRIG_DOWN, trig_up=TRIG_UP)   # 튜토리얼 보정으로 사용자별로 덮어씀
 
+# --- 건 포즈 (총 모집) 감지 상수 ---
+GUN_POSE_IDX_EXT_RATIO = 1.35   # 검지가 펴졌다고 보는 기준
+GUN_POSE_THUMB_UP_RATIO = 0.55  # 엄지가 위로 솟았을 때 (검지뿌리 대비)
+GUN_POSE_OTHER_FOLD_RATIO = 1.10  # 중지/약지/새끼가 접혔을 때 기준
+
+# --- 탕-탕 발포 모션 (건 포즈 상태에서 손 빠르게 앞뒤로) ---
+TAP_TAP_FORWARD_THRESH = 0.30   # 손이 앞으로 밀려감 (카메라 가까움)
+TAP_TAP_BACK_THRESH = 0.20      # 손이 뒤로 빠짐 (카메라 멀어짐)
+TAP_TAP_MAX_INTERVAL = 0.35     # 두 탭 사이의 최대 간격(초)
+
+# --- 시선 고정 (게이즈 에이밍) 상수 ---
+GAZE_LOCK_TIME = 0.50           # 시선을 고정하여 타겟 락온까지 걸리는 시간(초)
+GAZE_LOCK_DIST = 90             # 시선과 타겟이 이 거리 이내면 락온 가능(픽셀)
+GAZE_LOCK_ANGLE = 0.35          # 시선 방향과 타겟 방향이 이 라디안 이내면 락온
+
 # 난이도: 좀비 체력/공격력/코인 배율
 DIFFS = [
     dict(name="EASY", zhp=0.75, zdmg=0.6, coin=1.0, spawn=1.25),
@@ -438,12 +453,38 @@ class Ctl:
         self.tr = 0.0                 # 엄지-검지뿌리 거리 비율 (방아쇠 측정값)
         self.ext = [False] * 4        # 검지/중지/약지/새끼 펴짐 상태
 
+        # --- 건 포즈 (총 모집) 상태 ---
+        self.gun_pose = False         # 검지 펴고 엄지 위로 = 총 모집 자세
+        self.gun_pose_stable = False  # 건 포즈가 일정 프레임 유지됨
+        self.gun_pose_n = 0           # 건 포즈 연속 프레임 수
+
+        # --- 탕-탕 발포 모션 (건 포즈 중 손 앞뒤로 빠르게) ---
+        self.tap_z = None             # 손 깊이(z) 이전 값
+        self.tap_state = 0            # 0=대기, 1=앞으로 밀었음, 2=뒤로 빠짐(발사)
+        self.tap_time = 0.0           # 마지막 탭 시간
+        self.tap_count = 0            # 연속 탭 카운트
+
+        # --- 시선 고정 (게이즈 에이밍) ---
+        self.gaze_target = None       # 현재 시선이 고정된 적 객체
+        self.gaze_lock_t = 0.0        # 시선 고정 시작 시간
+        self.gaze_locked = False      # 락온 완료 여부
+
+        # --- 반동 ---
+        self.recoil = 0.0
+        self.recoil_dir = (0.0, -1.0)
+
     def shot_pos(self):
         base = self.lock if self.fire_edge else self.pos
         if getattr(self, "recoil", 0.0) > 0:
             rx, ry = getattr(self, "recoil_dir", (0.0, -1.0))
             return (base[0] + rx * self.recoil * S(10), base[1] + ry * self.recoil * S(10))
         return base
+
+    def gaze_target_pos(self):
+        """시선 고정 타겟의 현재 위치 반환"""
+        if self.gaze_target is not None and hasattr(self.gaze_target, 'center'):
+            return self.gaze_target.center
+        return self.pos
 
 
 class HandCtl(Ctl):
@@ -476,6 +517,23 @@ class HandCtl(Ctl):
         self.melee_fired = False
         self.melee_ready = True
         self.melee_cool = 0.0
+        self.melee_combo = 0
+        self.melee_combo_t = 0.0
+        # 건 포즈 (총 모집) 상태
+        self.gun_pose = False
+        self.gun_pose_stable = False
+        self.gun_pose_n = 0
+        # 탕-탕 발포 모션 (건 포즈 중 손 앞뒤로 빠르게)
+        self.tap_z = None
+        self.tap_state = 0
+        self.tap_time = 0.0
+        self.tap_count = 0
+        # 시선 고정 (게이즈 에이밍)
+        self.gaze_target = None
+        self.gaze_lock_t = 0.0
+        self.gaze_locked = False
+        # 시선 고정용 타겟 리스트 (게임에서 설정)
+        self.ar_targets = None
         # 반동
         self.recoil = 0.0
         self.recoil_dir = (0.0, -1.0)
@@ -507,6 +565,20 @@ class HandCtl(Ctl):
         self.melee_cool = 0.0
         self.melee_combo = 0
         self.melee_combo_t = 0.0
+        # 건 포즈 상태 초기화
+        self.gun_pose = False
+        self.gun_pose_stable = False
+        self.gun_pose_n = 0
+        # 탕-탕 상태 초기화
+        self.tap_z = None
+        self.tap_state = 0
+        self.tap_time = 0.0
+        self.tap_count = 0
+        # 시선 고정 초기화
+        self.gaze_target = None
+        self.gaze_lock_t = 0.0
+        self.gaze_locked = False
+        self.ar_targets = None
         # 반동 초기화
         self.recoil = 0.0
         self.recoil_dir = (0.0, -1.0)
@@ -575,6 +647,76 @@ class HandCtl(Ctl):
             self.pose = raw
         self.present = True
         self.guard = self.pose == "FIST"
+
+        # ---------- 건 포즈 (총 모집) 감지 ----------
+        # 검지 펴고, 엄지 위로, 나머지 손가락 접힘 = 총 모집 자세
+        gun_pose_candidate = (
+            self.ext[0] and                                  # 검지 펴짐
+            not self.ext[1] and not self.ext[2] and not self.ext[3] and  # 나머지 접힘
+            tr > GUN_POSE_THUMB_UP_RATIO                      # 엄지가 위로 (검지뿌리 대비 거리)
+        )
+        if gun_pose_candidate:
+            self.gun_pose_n += 1
+        else:
+            self.gun_pose_n = 0
+        self.gun_pose = gun_pose_candidate
+        self.gun_pose_stable = self.gun_pose_n >= 3  # 3프레임 연속으로 건 포즈 유지
+
+        # ---------- 탕-탕 발포 모션 (건 포즈 중 손 앞뒤로 빠르게) ----------
+        cz = P[9][2]  # 손 중심 깊이(z)
+        tap_fired = False
+        if self.gun_pose_stable:
+            if self.tap_z is not None:
+                dz = self.tap_z - cz  # 양수 = 앞으로 밀림(카메라 가까움)
+                if self.tap_state == 0 and dz > TAP_TAP_FORWARD_THRESH:
+                    self.tap_state = 1  # 앞으로 밀었음
+                elif self.tap_state == 1 and dz < -TAP_TAP_BACK_THRESH:
+                    # 뒤로 빠지면 탭 완성
+                    self.tap_state = 0
+                    now_t = now
+                    if self.tap_time > 0 and now_t - self.tap_time <= TAP_TAP_MAX_INTERVAL:
+                        self.tap_count += 1
+                        if self.tap_count >= 2:
+                            tap_fired = True
+                            self.tap_count = 0
+                    else:
+                        self.tap_count = 1
+                    self.tap_time = now_t
+            self.tap_z = cz
+        else:
+            self.tap_z = cz
+            self.tap_state = 0
+            self.tap_time = 0.0
+            self.tap_count = 0
+
+        # ---------- 시선 고정 (게이즈 에이밍) ----------
+        # 건 포즈 중이고 시선이 적을 향하면 락온
+        self.gaze_target = None
+        self.gaze_locked = False
+        if self.gun_pose_stable and self.ar_targets is not None:
+            best = None
+            best_d = GAZE_LOCK_DIST
+            for zb in self.ar_targets:
+                zb_c = zb.center
+                d = math.hypot(self.pos[0] - zb_c[0], self.pos[1] - zb_c[1])
+                if d < best_d:
+                    # 시선 방향과 타겟 방향 체크
+                    dir_to_target = (zb_c[0] - self.pos[0], zb_c[1] - self.pos[1])
+                    d_len = math.hypot(dir_to_target[0], dir_to_target[1]) or 1.0
+                    dir_to_target = (dir_to_target[0] / d_len, dir_to_target[1] / d_len)
+                    dot = self.dir[0] * dir_to_target[0] + self.dir[1] * dir_to_target[1]
+                    angle = math.acos(clamp(dot, -1.0, 1.0))
+                    if angle < GAZE_LOCK_ANGLE:
+                        best_d = d
+                        best = zb
+            self.gaze_target = best
+            if best is not None:
+                if self.gaze_lock_t == 0.0:
+                    self.gaze_lock_t = now
+                if now - self.gaze_lock_t >= GAZE_LOCK_TIME:
+                    self.gaze_locked = True
+            else:
+                self.gaze_lock_t = 0.0
 
         # 조준점: 검지 끝 (One Euro 필터)
         self.smooth = self.filt((P[8][0], P[8][1]), dt)
@@ -651,9 +793,14 @@ class HandCtl(Ctl):
             self.melee_combo = 0
 
         # 세 가지 발사 방식 중 하나라도 감지되면 발사
-        self.trigger = self.trig or fired or punch_fired
-        self.fire_edge = fired or punch_fired
+        self.trigger = self.trig or fired or punch_fired or tap_fired
+        self.fire_edge = fired or punch_fired or tap_fired
         self.melee_edge = melee_fired
+
+        # 시선 고정 시 조준점을 타겟으로
+        aim_pos = self.pos
+        if self.gaze_locked and self.gaze_target is not None:
+            aim_pos = self.gaze_target.center
 
         # 반동 적용 (발사 시 손 전체가 뒤로 튕기는 모션)
         if self.fire_edge:
@@ -662,7 +809,7 @@ class HandCtl(Ctl):
         else:
             self.recoil = max(0.0, self.recoil - dt * 8.0)
 
-        self.lock = self.pos
+        self.lock = aim_pos
         if self.fire_edge:
             for t, x, y in reversed(self.hist):
                 if t <= now - AIM_LOCK_BACK:
@@ -670,6 +817,8 @@ class HandCtl(Ctl):
                     break
             else:
                 self.lock = (self.hist[0][1], self.hist[0][2])
+            if self.gaze_locked and self.gaze_target is not None:
+                self.lock = self.gaze_target.center
 
         # 장전: 손바닥 유지
         if self.pose == "PALM":
@@ -829,11 +978,26 @@ WEAPONS = {
     "grenade": dict(name="GRENADE", dmg=170, rate=0.9, mag=1, reload=0, pellets=1, spread=0, auto=False,
                    pierce=False, price=60, pack=1, packcost=60, pvp=0, pvp_spread=0, col=(60, 160, 255), snd="shot"),
 }
+
+# ===================== 양손 아킴보 무기 (실총 모델 기반 듀얼) =====================
+# 각 손이 독립적으로 "탕 탕" 발사. 양손 모두 "총 모집" (검지 펴기, 나머지 접기) 상태여야 아킴보 발사 가능.
+DUAL_WEAPONS = {
+    "dual_pistol":   dict(name="DUAL PISTOL",   base="pistol",  dmg=34,  rate=0.22, mag=12, reload=1.0, pellets=1, spread=2,  auto=False, pierce=False, price=800,  pack=24, packcost=100, pvp=15,  pvp_spread=0.012, col=(220, 220, 100), snd="shot"),
+    "dual_glock17":  dict(name="DUAL GLOCK 17", base="glock17", dmg=28,  rate=0.16, mag=17, reload=1.2, pellets=1, spread=3,  auto=False, pierce=False, price=900,  pack=34, packcost=120, pvp=13,  pvp_spread=0.010, col=(180, 220, 180), snd="shot"),
+    "dual_m1911":    dict(name="DUAL M1911",    base="m1911",   dmg=42,  rate=0.25, mag=7,  reload=1.5, pellets=1, spread=2,  auto=False, pierce=False, price=1000, pack=14, packcost=140, pvp=18,  pvp_spread=0.008, col=(160, 140, 100), snd="shot"),
+    "dual_deagle":   dict(name="DUAL DESERT EAGLE", base="deagle", dmg=85, rate=0.40, mag=7, reload=2.0, pellets=1, spread=6,  auto=False, pierce=True,  price=2200, pack=14, packcost=240, pvp=45,  pvp_spread=0.018, col=(200, 140, 60), snd="shot"),
+    "dual_smg":      dict(name="DUAL SMG",      base="smg",     dmg=15,  rate=0.06, mag=30, reload=1.5, pellets=1, spread=25, auto=True,  pierce=False, price=1200, pack=120, packcost=140, pvp=8,   pvp_spread=0.07, col=(100, 200, 255), snd="smg"),
+    "dual_mp5":      dict(name="DUAL MP5",      base="mp5",     dmg=22,  rate=0.05, mag=30, reload=1.6, pellets=1, spread=18, auto=True,  pierce=False, price=1400, pack=120, packcost=160, pvp=10,  pvp_spread=0.06, col=(100, 180, 255), snd="smg"),
+    "dual_ump45":    dict(name="DUAL UMP45",     base="ump45",   dmg=30,  rate=0.07, mag=25, reload=1.8, pellets=1, spread=14, auto=True,  pierce=False, price=1500, pack=100, packcost=180, pvp=12,  pvp_spread=0.04, col=(140, 100, 200), snd="smg"),
+}
 GUNS = ["pistol", "glock17", "m1911", "deagle", "smg", "mp5", "ump45", "mac10", "vector", "p90", "mp7",
         "rifle", "ak47", "m4a1", "scar", "g36", "aug", "m249",
         "shotgun", "rem870", "m1014",
         "sniper", "m24", "awp"]
-ORDER = GUNS + ["grenade"]
+DUAL_GUNS = list(DUAL_WEAPONS.keys())
+# 듀얼 무기를 주 무장 딕셔너리에도 등록 (Arsenal.w 조회용)
+WEAPONS.update(DUAL_WEAPONS)
+ORDER = GUNS + DUAL_GUNS + ["grenade"]
 ITEMS = {
     "medkit": dict(name="MEDKIT", price=50, desc="Heal 50 HP  (key H / hold on HUD)"),
     "armor": dict(name="ARMOR", price=80, desc="+50 armor, absorbs 50% damage  (key A)"),
@@ -878,7 +1042,7 @@ class Save:
 
 
 class Arsenal:
-    """탄창/예비탄/장전/발사 간격 관리"""
+    """탄창/예비탄/장전/발사 간격 관리 (아킴보 지원)"""
 
     def __init__(self, guns, reserve, infinite=False, grenades=0, equipped=None, allow_grenade=False):
         self.guns = list(guns) or ["pistol"]
@@ -895,13 +1059,24 @@ class Arsenal:
                 take = min(m, have)
                 self.mag[g], self.res[g] = take, have - take
         self.cur = equipped if equipped in self.guns else self.guns[0]
-        self.last = -9.0
+        self.dual = False           # 양손 아킴보 모드
+        self.cur_l = self.cur       # 좌수 총
+        self.cur_r = self.cur       # 우수 총
+        self.last_l = -9.0
+        self.last_r = -9.0
         self.reload_end = None
         self.reload_start = 0.0
+        self.reload_side = None     # 'l', 'r', 또는 None
 
     @property
     def w(self):
         return WEAPONS[self.cur]
+
+    def w_l(self):
+        return WEAPONS[self.cur_l]
+
+    def w_r(self):
+        return WEAPONS[self.cur_r]
 
     def slots(self):
         return self.guns + (["grenade"] if self.allow_grenade else [])
@@ -914,8 +1089,17 @@ class Arsenal:
             return False
         if name != self.cur:
             self.cur = name
+            self.cur_l = name
+            self.cur_r = name
             self.reload_end = None
         return True
+
+    def set_dual(self, enable):
+        self.dual = bool(enable)
+        if self.dual:
+            # 아킴보 모드 진입 시 현재 무기를 양손에 복제
+            self.cur_l = self.cur
+            self.cur_r = self.cur
 
     def cycle(self, d=1):
         order = self.guns + (["grenade"] if self.allow_grenade and self.grenades > 0 else [])
@@ -932,47 +1116,67 @@ class Arsenal:
             return 0.0
         return clamp((now - self.reload_start) / max(0.01, self.reload_end - self.reload_start), 0, 1)
 
-    def start_reload(self, now):
-        c = self.cur
+    def start_reload(self, now, side=None):
+        c = self.cur_l if side == "l" else (self.cur_r if side == "r" else self.cur)
         if c == "grenade" or self.reloading():
             return False
         if self.mag[c] >= WEAPONS[c]["mag"] or self.res[c] <= 0:
             return False
         self.reload_start = now
         self.reload_end = now + WEAPONS[c]["reload"]
+        self.reload_side = side
         return True
 
     def update(self, now):
         if self.reload_end is not None and now >= self.reload_end:
-            c = self.cur
+            c = self.cur_l if self.reload_side == "l" else (self.cur_r if self.reload_side == "r" else self.cur)
             need = WEAPONS[c]["mag"] - self.mag[c]
             take = min(need, self.res[c])
             self.mag[c] += take
             if self.res[c] < INF // 2:
                 self.res[c] -= take
             self.reload_end = None
+            self.reload_side = None
             return True
         return False
 
-    def shoot(self, now):
-        c = self.cur
-        w = WEAPONS[c]
-        if self.reloading():
-            return "reloading"
-        if now - self.last < w["rate"]:
-            return "busy"
-        if c == "grenade":
-            if self.grenades <= 0:
-                return "empty"
-            self.grenades -= 1
-            self.last = now
-            return "ok"
-        if self.mag[c] <= 0:
-            self.last = now
-            return "reload" if self.start_reload(now) else "empty"
-        self.mag[c] -= 1
-        self.last = now
-        return "ok"
+    def shoot(self, now, side="both"):
+        """양손 아킴보 발사: side='l' 좌수, 'r' 우수, 'both' 양손"""
+        results = {}
+        for s in (["l", "r"] if side == "both" else [side]):
+            c = self.cur_l if s == "l" else self.cur_r
+            last = self.last_l if s == "l" else self.last_r
+            w = WEAPONS[c]
+            if self.reloading():
+                results[s] = "reloading"
+                continue
+            if now - last < w["rate"]:
+                results[s] = "busy"
+                continue
+            if c == "grenade":
+                if self.grenades <= 0:
+                    results[s] = "empty"
+                else:
+                    self.grenades -= 1
+                    if s == "l":
+                        self.last_l = now
+                    else:
+                        self.last_r = now
+                    results[s] = "ok"
+                continue
+            if self.mag[c] <= 0:
+                if self.start_reload(now, side=s):
+                    results[s] = "reload"
+                else:
+                    results[s] = "empty"
+                continue
+            self.mag[c] -= 1
+            if s == "l":
+                self.last_l = now
+            else:
+                self.last_r = now
+            results[s] = "ok"
+        return results
 
     def ammo_text(self):
         c = self.cur
@@ -980,6 +1184,16 @@ class Arsenal:
             return "x%d" % self.grenades
         r = self.res[c]
         return "%d / %s" % (self.mag[c], "INF" if r >= INF // 2 else str(r))
+
+    def ammo_text_lr(self):
+        """양손 탄약 텍스트"""
+        c_l, c_r = self.cur_l, self.cur_r
+        def fmt(g):
+            if g == "grenade":
+                return "x%d" % self.grenades
+            r = self.res[g]
+            return "%d/%s" % (self.mag[g], "INF" if r >= INF // 2 else str(r))
+        return fmt(c_l), fmt(c_r)
 
     def totals(self):
         return {g: self.mag[g] + self.res[g] for g in self.guns if self.res[g] < INF // 2}
@@ -1262,7 +1476,9 @@ class PvE(PlayMode):
         sv = g.save.d
         self.diff = DIFFS[clamp(int(sv["settings"]["difficulty"]), 0, len(DIFFS) - 1)]
         self.items = dict(sv["items"])
-        self.ar = Arsenal([w for w in GUNS if w in sv["owned"]], sv["ammo"], False, self.items.get("grenade", 0),
+        # 양손 아킴보 무기 포함
+        owned_guns = [w for w in GUNS if w in sv["owned"]] + [w for w in DUAL_GUNS if w in sv["owned"]]
+        self.ar = Arsenal(owned_guns, sv["ammo"], False, self.items.get("grenade", 0),
                           sv["equipped"], allow_grenade=True)
         self.hp, self.armor = 100.0, 0.0
         self.wave = 0
@@ -1444,6 +1660,32 @@ class PvE(PlayMode):
 
     def fire(self, ctl, now):
         ar, g = self.ar, self.g
+
+        # ---------- 양손 아킴보 모드 ----------
+        if ar.dual:
+            # 탭 카운트에 따라 좌우 번갈아 발사 (탕-탕)
+            side = "l" if ctl.tap_count % 2 == 1 else "r"
+            results = ar.shoot(now, side=side)
+            res = results.get(side, "busy")
+            if res == "empty":
+                g.sfx.play("empty")
+                return
+            if res == "reload":
+                g.sfx.play("reload")
+                return
+            if res != "ok":
+                return
+            w = ar.w_l() if side == "l" else ar.w_r()
+            pos = ctl.shot_pos()
+            g.sfx.play(w["snd"])
+            g.fx.shake = max(g.fx.shake, 3 + w["dmg"] / 40.0)
+            g.fx.burst(pos[0], pos[1], (120, 230, 255), 5, 160, 0.15, 3, 0)
+            for _ in range(w["pellets"]):
+                a, rr = random.uniform(0, 6.283), math.sqrt(random.random()) * S(w["spread"])
+                self.hit_point(pos[0] + math.cos(a) * rr, pos[1] + math.sin(a) * rr, w["dmg"], w["pierce"])
+            return
+
+        # ---------- 일반 단일 무장 ----------
         res = ar.shoot(now)
         if res == "empty":
             g.sfx.play("empty")
@@ -1750,6 +1992,59 @@ class Range(PlayMode):
 
     def fire(self, ctl, now):
         ar, g = self.ar, self.g
+
+        # ---------- 양손 아킴보 모드 ----------
+        if ar.dual:
+            side = "l" if ctl.tap_count % 2 == 1 else "r"
+            results = ar.shoot(now, side=side)
+            res = results.get(side, "busy")
+            if res == "empty":
+                g.sfx.play("empty")
+                return
+            if res == "reload":
+                g.sfx.play("reload")
+                return
+            if res != "ok":
+                return
+            w = ar.w_l() if side == "l" else ar.w_r()
+            pos = ctl.shot_pos()
+            g.sfx.play(w["snd"])
+            g.fx.shake = max(g.fx.shake, 2 + w["dmg"] / 50.0)
+            self.shots += 1
+            got, bad = 0, False
+            for _ in range(w["pellets"]):
+                a, rr = random.uniform(0, 6.283), math.sqrt(random.random()) * S(w["spread"])
+                px, py = pos[0] + math.cos(a) * rr, pos[1] + math.sin(a) * rr
+                h = self.hit_point(px, py, now)
+                if h is None:
+                    g.fx.burst(px, py, (200, 200, 200), 3, 120, 0.25, 2, 0)
+                    continue
+                pts, kind, t = h
+                if pts < 0:
+                    bad = True
+                    self.score += pts
+                    g.fx.text(t["x"], t["y"] - t["r"], "OOPS! %d" % pts, (60, 60, 255), 0.9)
+                    g.sfx.play("hurt")
+                else:
+                    mult = 1 + 0.1 * min(self.streak, 20)
+                    add = int(pts * mult)
+                    self.score += add
+                    got += 1
+                    g.fx.text(t["x"], t["y"] - t["r"], "+%d" % add,
+                              (0, 215, 255) if kind == "gold" else (255, 255, 255), 0.8)
+                    g.fx.burst(t["x"], t["y"],
+                               (0, 215, 255) if kind == "gold" else (60, 60, 255), 12, 260, 0.4, 3)
+                    g.sfx.play("hit")
+            if got and not bad:
+                self.hits += 1
+                self.streak += 1
+                self.best_streak = max(self.best_streak, self.streak)
+            else:
+                self.streak = 0
+            self.score = max(0, self.score)
+            return
+
+        # ---------- 일반 단일 무장 ----------
         res = ar.shoot(now)
         if res == "empty":
             g.sfx.play("empty")
@@ -1782,8 +2077,10 @@ class Range(PlayMode):
                 add = int(pts * mult)
                 self.score += add
                 got += 1
-                g.fx.text(t["x"], t["y"] - t["r"], "+%d" % add, (0, 215, 255) if kind == "gold" else (255, 255, 255), 0.8)
-                g.fx.burst(t["x"], t["y"], (0, 215, 255) if kind == "gold" else (60, 60, 255), 12, 260, 0.4, 3)
+                g.fx.text(t["x"], t["y"] - t["r"], "+%d" % add,
+                          (0, 215, 255) if kind == "gold" else (255, 255, 255), 0.8)
+                g.fx.burst(t["x"], t["y"],
+                           (0, 215, 255) if kind == "gold" else (60, 60, 255), 12, 260, 0.4, 3)
                 g.sfx.play("hit")
         if got and not bad:
             self.hits += 1
@@ -1937,7 +2234,7 @@ class Player:
     def __init__(self, idx):
         self.idx = idx
         self.hp = 100.0
-        self.ar = Arsenal(GUNS, {}, True)
+        self.ar = Arsenal(list(GUNS) + list(DUAL_GUNS), {}, True)
         self.ctl = None
         self.flash = 0.0
         self.col = PCOL[idx]
@@ -2244,6 +2541,16 @@ class Inventory(Mode):
                     R.append(dict(key=("equip", gn), title=w["name"], sub=sub, btn="EQUIPPED" if eq else "EQUIP", en=not eq, col=w["col"]))
                 else:
                     R.append(dict(key=("none", gn), title=w["name"], sub="Locked - buy it in the SHOP", btn="LOCKED", en=False, col=(110, 110, 110)))
+            # 듀얼 무기 (양손 아킴보)
+            R.append(dict(key=("none", None), title="--- DUAL WIELD (양손 권총) ---", sub="양손에 각각 무기를 쥐고 탕-탕!", btn="", en=False, col=(100, 100, 100)))
+            for gn in DUAL_GUNS:
+                w = DUAL_WEAPONS[gn]
+                own = gn in d["owned"]
+                if own:
+                    eq = d["equipped"] == gn
+                    R.append(dict(key=("equip", gn), title=w["name"], sub="양손 동시 발사", btn="EQUIPPED" if eq else "EQUIP", en=not eq, col=w["col"]))
+                else:
+                    R.append(dict(key=("none", gn), title=w["name"], sub="Locked - buy in SHOP", btn="LOCKED", en=False, col=(110, 110, 110)))
             for it in ("medkit", "armor", "grenade"):
                 R.append(dict(key=("none", it), title=ITEMS[it]["name"], sub=ITEMS[it]["desc"], btn="x%d" % d["items"][it], en=False, col=(210, 210, 210)))
             b = d["best"]
@@ -2257,6 +2564,21 @@ class Inventory(Mode):
                 else:
                     R.append(dict(key=("buyw", gn), title=w["name"], sub="DMG %d%s  MAG %d" % (w["dmg"], ("x%d" % w["pellets"]) if w["pellets"] > 1 else "", w["mag"]),
                                   btn="BUY $%d" % w["price"], en=d["coins"] >= w["price"], col=w["col"]))
+            # 듀얼 무기 샵
+            R.append(dict(key=("none", None), title="--- DUAL WIELD ---", sub="양손에 각각 같은 무기를 들고 발사", btn="", en=False, col=(100, 100, 100)))
+            for gn in DUAL_GUNS:
+                w = DUAL_WEAPONS[gn]
+                if gn in d["owned"]:
+                    R.append(dict(key=("none", gn), title=w["name"], sub="Already owned", btn="OWNED", en=False, col=w["col"]))
+                else:
+                    R.append(dict(key=("buyw", gn), title=w["name"], sub="DUAL %s" % w["name"],
+                                  btn="BUY $%d" % w["price"], en=d["coins"] >= w["price"], col=w["col"]))
+            for gn in DUAL_GUNS:
+                w = DUAL_WEAPONS[gn]
+                own = gn in d["owned"]
+                R.append(dict(key=("buya", gn), title="%s AMMO +%d" % (w["name"], w["pack"]),
+                              sub=("Have: %d" % d["ammo"].get(gn, 0)) if own else "Buy the weapon first",
+                              btn="$%d" % w["packcost"] if own else "LOCKED", en=own and d["coins"] >= w["packcost"], col=w["col"]))
             for gn in GUNS[1:]:
                 w, own = WEAPONS[gn], gn in d["owned"]
                 R.append(dict(key=("buya", gn), title="%s AMMO +%d" % (w["name"], w["pack"]),
@@ -2293,17 +2615,31 @@ class Inventory(Mode):
         kind, name = key
         if kind == "equip":
             d["equipped"] = name
-            self.say("EQUIPPED " + WEAPONS[name]["name"])
+            # 듀얼 무장 모드 토글
+            if name in DUAL_WEAPONS:
+                self.g.ar.set_dual(True)
+                self.say("EQUIPPED %s (DUAL)" % DUAL_WEAPONS[name]["name"])
+            else:
+                self.g.ar.set_dual(False)
+                self.say("EQUIPPED " + WEAPONS[name]["name"])
         elif kind == "buyw":
-            d["coins"] -= WEAPONS[name]["price"]
+            w = WEAPONS.get(name) or DUAL_WEAPONS.get(name)
+            d["coins"] -= w["price"]
             d["owned"].append(name)
             d["equipped"] = name
-            d["ammo"][name] = d["ammo"].get(name, 0) + WEAPONS[name]["pack"]
-            self.say("BOUGHT " + WEAPONS[name]["name"])
+            base = w.get("base", name)
+            d["ammo"][base] = d["ammo"].get(base, 0) + w["pack"]
+            if name in DUAL_WEAPONS:
+                self.g.ar.set_dual(True)
+                self.say("BOUGHT %s (DUAL)" % w["name"])
+            else:
+                self.say("BOUGHT " + w["name"])
         elif kind == "buya":
-            d["coins"] -= WEAPONS[name]["packcost"]
-            d["ammo"][name] = d["ammo"].get(name, 0) + WEAPONS[name]["pack"]
-            self.say("AMMO +%d" % WEAPONS[name]["pack"])
+            w = WEAPONS.get(name) or DUAL_WEAPONS.get(name)
+            d["coins"] -= w["packcost"]
+            base = w.get("base", name)
+            d["ammo"][base] = d["ammo"].get(base, 0) + w["pack"]
+            self.say("AMMO +%d" % w["pack"])
         elif kind == "buyi":
             d["coins"] -= ITEMS[name]["price"]
             d["items"][name] += 1
@@ -2754,6 +3090,13 @@ class Game:
             return
         self.mode = {"menu": Menu, "pve": PvE, "pvp": PvP, "range": Range, "inv": Inventory,
                      "tutorial": Tutorial}[name](self)
+        # 듀얼 무장 상태 동기화
+        if name in ("pve", "pvp", "range") and hasattr(self, 'ar'):
+            equipped = self.save.d.get("equipped", "pistol")
+            if equipped in DUAL_WEAPONS:
+                self.ar.set_dual(True)
+            else:
+                self.ar.set_dual(False)
 
     def resize(self, W, H):
         W, H = int(W) // 2 * 2, int(H) // 2 * 2
@@ -2879,6 +3222,8 @@ class Game:
             main = pick[2]
         else:
             self.main_prev = None
+        # 시선 고정용 타겟 리스트 설정 (PvE/PvP 모드의 좀비)
+        self.hand_main.ar_targets = getattr(self.mode, 'zs', None)
         self.hand_main.update(main, now, dt)
         left = right = None
         if len(info) >= 2:
