@@ -464,11 +464,6 @@ class Ctl:
         self.tap_time = 0.0           # 마지막 탭 시간
         self.tap_count = 0            # 연속 탭 카운트
 
-        # --- 시선 고정 (게이즈 에이밍) ---
-        self.gaze_target = None       # 현재 시선이 고정된 적 객체
-        self.gaze_lock_t = 0.0        # 시선 고정 시작 시간
-        self.gaze_locked = False      # 락온 완료 여부
-
         # --- 반동 ---
         self.recoil = 0.0
         self.recoil_dir = (0.0, -1.0)
@@ -479,12 +474,6 @@ class Ctl:
             rx, ry = getattr(self, "recoil_dir", (0.0, -1.0))
             return (base[0] + rx * self.recoil * S(10), base[1] + ry * self.recoil * S(10))
         return base
-
-    def gaze_target_pos(self):
-        """시선 고정 타겟의 현재 위치 반환"""
-        if self.gaze_target is not None and hasattr(self.gaze_target, 'center'):
-            return self.gaze_target.center
-        return self.pos
 
 
 class HandCtl(Ctl):
@@ -528,12 +517,6 @@ class HandCtl(Ctl):
         self.tap_state = 0
         self.tap_time = 0.0
         self.tap_count = 0
-        # 시선 고정 (게이즈 에이밍)
-        self.gaze_target = None
-        self.gaze_lock_t = 0.0
-        self.gaze_locked = False
-        # 시선 고정용 타겟 리스트 (게임에서 설정)
-        self.ar_targets = None
         # 반동
         self.recoil = 0.0
         self.recoil_dir = (0.0, -1.0)
@@ -574,11 +557,6 @@ class HandCtl(Ctl):
         self.tap_state = 0
         self.tap_time = 0.0
         self.tap_count = 0
-        # 시선 고정 초기화
-        self.gaze_target = None
-        self.gaze_lock_t = 0.0
-        self.gaze_locked = False
-        self.ar_targets = None
         # 반동 초기화
         self.recoil = 0.0
         self.recoil_dir = (0.0, -1.0)
@@ -692,39 +670,6 @@ class HandCtl(Ctl):
             self.tap_state = 0
             self.tap_time = 0.0
             self.tap_count = 0
-
-        # ---------- 시선 고정 (게이즈 에이밍) ----------
-        # 건 포즈 중이고 시선이 적을 향하면 락온
-        self.gaze_target = None
-        self.gaze_locked = False
-        if self.gun_pose_stable and self.ar_targets is not None:
-            best = None
-            best_d = GAZE_LOCK_DIST
-            for zb in self.ar_targets:
-                try:
-                    zx, zy, zh = zgeom(zb)
-                    zb_c = (zx, zy - zh * 0.5)
-                except Exception:
-                    continue
-                d = math.hypot(self.pos[0] - zb_c[0], self.pos[1] - zb_c[1])
-                if d < best_d:
-                    # 시선 방향과 타겟 방향 체크
-                    dir_to_target = (zb_c[0] - self.pos[0], zb_c[1] - self.pos[1])
-                    d_len = math.hypot(dir_to_target[0], dir_to_target[1]) or 1.0
-                    dir_to_target = (dir_to_target[0] / d_len, dir_to_target[1] / d_len)
-                    dot = self.dir[0] * dir_to_target[0] + self.dir[1] * dir_to_target[1]
-                    angle = math.acos(clamp(dot, -1.0, 1.0))
-                    if angle < GAZE_LOCK_ANGLE:
-                        best_d = d
-                        best = zb
-            self.gaze_target = best
-            if best is not None:
-                if self.gaze_lock_t == 0.0:
-                    self.gaze_lock_t = now
-                if now - self.gaze_lock_t >= GAZE_LOCK_TIME:
-                    self.gaze_locked = True
-            else:
-                self.gaze_lock_t = 0.0
 
         # 조준점: 검지 끝 (One Euro 필터)
         self.smooth = self.filt((P[8][0], P[8][1]), dt)
@@ -3229,8 +3174,6 @@ class Game:
             main = pick[2]
         else:
             self.main_prev = None
-        # 시선 고정용 타겟 리스트 설정 (PvE/PvP 모드의 좀비)
-        self.hand_main.ar_targets = getattr(self.mode, 'zs', None)
         self.hand_main.update(main, now, dt)
         left = right = None
         if len(info) >= 2:
