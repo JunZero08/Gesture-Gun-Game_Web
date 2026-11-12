@@ -749,11 +749,6 @@ class HandCtl(Ctl):
         self.fire_edge = fired or punch_fired or tap_fired
         self.melee_edge = melee_fired
 
-        # 시선 고정 시 조준점을 타겟으로
-        aim_pos = self.pos
-        if self.gaze_locked and self.gaze_target is not None:
-            aim_pos = self.gaze_target.center
-
         # 반동 적용 (발사 시 손 전체가 뒤로 튕기는 모션)
         if self.fire_edge:
             self.recoil = min(1.0, self.recoil + 0.50)
@@ -761,7 +756,7 @@ class HandCtl(Ctl):
         else:
             self.recoil = max(0.0, self.recoil - dt * 8.0)
 
-        self.lock = aim_pos
+        self.lock = self.pos
         if self.fire_edge:
             for t, x, y in reversed(self.hist):
                 if t <= now - AIM_LOCK_BACK:
@@ -769,8 +764,6 @@ class HandCtl(Ctl):
                     break
             else:
                 self.lock = (self.hist[0][1], self.hist[0][2])
-            if self.gaze_locked and self.gaze_target is not None:
-                self.lock = self.gaze_target.center
 
         # 장전: 손바닥 유지
         if self.pose == "PALM":
