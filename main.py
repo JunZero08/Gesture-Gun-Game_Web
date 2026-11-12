@@ -1114,9 +1114,11 @@ class Menu(Mode):
 
     def items(self):
         d = DIFFS[self.g.save.d["settings"]["difficulty"]]
+        cam_label = "CAMERA: %d" % self.g.cam_index
         return [("PVE   ZOMBIES", "pve"), ("PVP   DUEL", "pvp"), ("SHOOTING RANGE", "range"),
                 ("INVENTORY / SHOP", "inv"), ("TUTORIAL", "tutorial"),
-                ("DIFFICULTY: " + d["name"], "diff"), ("QUIT", "quit")]
+                ("DIFFICULTY: " + d["name"], "diff"), ("CAMERA: %d" % self.g.cam_index, "cam"),
+                ("QUIT", "quit")]
 
     def rects(self):
         bw, bh, gap = S(430), S(50), S(10)
@@ -1136,6 +1138,9 @@ class Menu(Mode):
                         st = self.g.save.d["settings"]
                         st["difficulty"] = (st["difficulty"] + 1) % len(DIFFS)
                         self.g.save.write()
+                    elif key == "cam":
+                        self.g.cam_index = (self.g.cam_index + 1) % 6
+                        self.g.toast("CAMERA: %d" % self.g.cam_index, 1.2)
                     else:
                         self.g.go(key)
                     return
@@ -2713,6 +2718,8 @@ class Game:
         self.now = 0.0
         self.toasts = []
         self.fps = 0.0
+        self.cam_index = 1   # 기본 카메라 번호 (고정값: 1)
+        self.cap = None      # 카메라 캡처 객체
         self.mode = Menu(self)
 
     # ---------- 유틸 ----------
@@ -2793,9 +2800,18 @@ class Game:
         elif ch == "i":
             self.debug = not self.debug
         elif ch == "v":
-            self.mouse_mode = not self.mouse_mode
-            self.mouse.guard = False
-            self.toast("MOUSE MODE" if self.mouse_mode else "CAMERA MODE")
+            if not self.mouse_mode:
+                # 카메라 모드에서 마우스 모드로 전환
+                self.mouse_mode = True
+                self.mouse.guard = False
+                self.toast("MOUSE MODE")
+            else:
+                # 마우스 모드에서 카메라 모드로 전환 (기본 카메라 번호 사용)
+                if self.cap is None:
+                    self.cap = open_camera(self.cam_index)
+                self.mouse_mode = False
+                self.mouse.guard = False
+                self.toast("CAMERA MODE")
 
     # ---------- 업데이트 ----------
     def feed_hands(self, hands, now, dt):
@@ -2979,12 +2995,12 @@ def prep_frame(frame, W, H, det_w=640):
     return bg, det
 
 
-def open_camera(index=0):
+def open_camera(index=1):
     if sys.platform.startswith("win"):
         backends = ((cv2.CAP_DSHOW, "DSHOW"), (cv2.CAP_MSMF, "MSMF"), (cv2.CAP_ANY, "ANY"))
     else:
         backends = ((cv2.CAP_ANY, "ANY"),)
-    # 카메라 0부터 5까지 순차 시도 (내장/외장 웹캠 모두 대응, --cam 지정 불필요)
+    # 카메라 1부터 순차 시도 (기본값: 1번 카메라, 내장/외장 웹캠 모두 대응)
     for idx in range(index, index + 6):
         for be, name in backends:
             cap = cv2.VideoCapture(idx, be)
@@ -3047,7 +3063,7 @@ def fit_size(w, h):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mouse", action="store_true", help="마우스로 플레이 (카메라 없이 테스트)")
-    ap.add_argument("--cam", type=int, default=0, help="카메라 번호")
+    ap.add_argument("--cam", type=int, default=1, help="카메라 번호 (기본값: 1)")
     ap.add_argument("--size", default="1280x720", help="처음 창 크기 예: 1280x720")
     ap.add_argument("--fullscreen", action="store_true")
     args = ap.parse_args()
@@ -3059,8 +3075,9 @@ def main():
     cap, mp, landmarker = None, None, None
     mouse_mode = args.mouse
     if not mouse_mode:
-        # --cam 지정 없이도 카메라 0~5 자동 탐색
-        cap = open_camera(args.cam)
+        # --cam 지정 없이도 카메라 0~5 자동 탐색 (기본값: 1번 카메라)
+        cap = open_camera(game.cam_index)
+        game.cap = cap
         if cap is None:
             print("사용 가능한 웹캠을 찾을 수 없습니다.")
             print("  - Windows 카메라 권한: 설정 > 개인정보 보호 및 보안 > 카메라 > '데스크톱 앱이 카메라에 액세스하도록 허용'을 켬")
@@ -3107,8 +3124,8 @@ def main():
             cv2.setWindowProperty(WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN if fullscreen else cv2.WINDOW_NORMAL)
 
         bg, hands = None, []
-        if cap is not None:
-            ok, frame = cap.read()
+        if game.cap is not None:
+            ok, frame = game.cap.read()
             if ok:
                 bg, det = prep_frame(frame, V.W, V.H)
                 if landmarker is not None and not game.mouse_mode:
@@ -3131,8 +3148,8 @@ def main():
     if isinstance(game.mode, (PvE,)):
         game.mode.leave()
     game.sfx.close()
-    if cap is not None:
-        cap.release()
+    if game.cap is not None:
+        game.cap.release()
     if landmarker is not None:
         landmarker.close()
     cv2.destroyAllWindows()
